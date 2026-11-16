@@ -1,0 +1,69 @@
+name: Verify isolated editable adoption completeness
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-adoption-completeness.yml'
+permissions: {}
+jobs:
+  adoption:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Fetch pinned frontend
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = a1996da41989fd3a1d5ccc99f4d425c468a292f8
+      - name: Existing adoption controls
+        working-directory: frontend
+        run: |
+          node scripts/verify-movie-mentor-recovery-adoption-transaction.mjs
+          node scripts/verify-movie-mentor-recovery-locked-commit.mjs
+      - name: Physical browser adoption completeness
+        working-directory: frontend
+        run: |
+          npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+          cat > diagnostic-adoption.mjs <<'NODE'
+          import assert from 'node:assert/strict';
+          import {chromium} from 'playwright';
+          import {createServer} from 'vite';
+          const vite=await createServer({server:{host:'127.0.0.1',port:4189,strictPort:true}});
+          let browser;
+          try{
+            await vite.listen();
+            browser=await chromium.launch();
+            const page=await browser.newPage();
+            await page.goto('http://127.0.0.1:4189/');
+            const result=await page.evaluate(async()=>{
+              const {commitMovieMentorRecoveryWithLock}=await import('/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js');
+              const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+              const projectId='film-a',journey={projectId,currentStageId:'story',currentTaskId:'outline'};
+              const recovered=projectRecoveredCreatorWorkspace({projectId,state:{projectId,revision:9,creatorStateGeneration:9,projectJourney:journey,memoryContext:{conversations:[{projectId,role:'creator',content:'A moonlit harbour'}]},creatorConfirmedContext:[{key:'project',value:{id:projectId,creatorType:'video',metadata:{creatorMode:'ai-movie'}}}]}});
+              const key='diagnostic-adoption-only';
+              localStorage.setItem(key,JSON.stringify({projects:[],conversations:[],journey:{}}));
+              const read=()=>JSON.parse(localStorage.getItem(key));
+              let commits=0;
+              const commit=state=>{commits++;localStorage.setItem(key,JSON.stringify(state));};
+              const denied=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState:read,commit,locks:navigator.locks,beforeCommit:()=>{const s=read();s.conversations.push({projectId,content:'new local work'});localStorage.setItem(key,JSON.stringify(s));}});
+              const preserved=read();
+              localStorage.setItem(key,JSON.stringify({projects:[],conversations:[],journey:{}}));
+              const allowed=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState:read,commit,locks:navigator.locks});
+              return {denied,preserved,allowed,commits,state:read(),expected:recovered.conversationMessages};
+            });
+            assert.equal(result.denied.allowed,false);
+            assert.equal(result.preserved.conversations[0].content,'new local work');
+            assert.equal(result.allowed.allowed,true);
+            assert.equal(result.commits,1);
+            assert.equal(result.state.projects[0].metadata.projectJourney.currentStageId,'story');
+            assert.equal(result.state.journey.activeProjectId,'film-a');
+            console.log('GREEN adoption lock and local work preservation controls');
+            assert.deepEqual(result.state.conversations,result.expected,'Recovered conversation must survive adoption');
+            console.log('GREEN ADOPTION_CONVERSATION_COMPLETENESS');
+          }finally{if(browser)await browser.close();await vite.close();}
+          NODE
+          node diagnostic-adoption.mjs
