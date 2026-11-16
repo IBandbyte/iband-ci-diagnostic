@@ -46,7 +46,7 @@ jobs:
           try { const p=await auth.verifyCredential({credential,expectedIssuer:issuer,expectedAudience:audience}); console.log('DIRECT_AUTH_VERIFIED',p.verified===true); }
           catch(e){console.log('DIRECT_AUTH_REJECTED',JSON.stringify({code:e.code,causeName:e.cause?.name,causeReason:e.cause?.reason,causeCode:e.cause?.code,causeMessage:String(e.cause?.message||'').replace(/[A-Za-z0-9_-]{20,}/g,'[redacted]')}));}
           NODE
-          grep -R -n -m 3 'token-invalid' node_modules/@clerk/backend/dist --include='*.js' | cut -c1-500 | head -20 || true
+          grep -R -n -B 22 -A 12 'Invalid session token category' node_modules/@clerk/backend/dist --include='*.js' | cut -c1-500 | head -130 || true
       - name: Start isolated MongoDB with replica-set mode enabled
         run: |
           docker run -d --name movie-mentor-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
