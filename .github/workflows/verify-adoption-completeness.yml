@@ -681,3 +681,35 @@ jobs:
           fs.writeFileSync(p,s);
           NODE
           node diagnostic-cross-tab-continuation.mjs
+      - name: Stale legacy memory writer recovered history protection
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-cross-tab-continuation.mjs','utf8');
+          const a='const continuation=await page.evaluate(async()=>{';
+          if(s.split(a).length!==2)throw Error('Unexpected stale writer setup anchor');
+          s=s.replace(a,`const legacyTab=await page.context().newPage();
+          await legacyTab.goto(page.url());
+          await legacyTab.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            window.legacyMemory=createMemory({storageKey:"diagnostic-adoption-only"});
+          });
+          `+a);
+          const b='console.log("GREEN RECOVERED_CROSS_TAB_SETTLEMENT_REPLAY_RELOAD");';
+          if(s.split(b).length!==2)throw Error('Unexpected stale writer assertion anchor');
+          s=s.replace(b,b+`
+          const legacyResult=await legacyTab.evaluate(()=>{
+            try{return {result:window.legacyMemory.rememberConversation({creatorMessage:"Stale legacy write",relatedProjectIds:["film-a"]})};}
+            catch(e){return {error:String(e)};}
+          });
+          const afterLegacy=await page.evaluate(()=>localStorage.getItem("diagnostic-adoption-only"));
+          console.log("STALE_LEGACY_WRITER",JSON.stringify({outcome:legacyResult,unchanged:afterLegacy===bytes,turns:JSON.parse(afterLegacy).conversations.map(x=>x.metadata?.creatorTurnId||x.id)}));
+          assert.equal(afterLegacy,bytes,"Stale uncoordinated memory must not mutate recovered durable history");
+          await legacyTab.close();
+          console.log("GREEN STALE_LEGACY_WRITER_DENIAL");
+          `);
+          fs.writeFileSync('diagnostic-stale-legacy.mjs',s);
+          NODE
+          node diagnostic-stale-legacy.mjs
