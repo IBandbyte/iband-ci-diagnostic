@@ -392,3 +392,35 @@ jobs:
           fs.writeFileSync('diagnostic-mixed-admission.mjs',s);
           NODE
           node diagnostic-mixed-admission.mjs
+      - name: Record level mixed history candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let s=fs.readFileSync(p,'utf8');
+          const start=s.indexOf('if(records.length&&records.every(canonical))');
+          const tail='updatedAt:new Date(i).toISOString()';
+          const end=s.indexOf(tail,start);
+          const close=s.indexOf('}));',end);
+          const outer=s.indexOf('}',close+4);
+          if(start<0||end<0||close<0||outer<0)throw Error('Unexpected mixed conversion boundaries');
+          s=s.slice(0,start)+`const legacy=m=>m&&m.type===undefined&&m.projectId===projectId&&["creator","mentor"].includes(m.role)&&typeof m.content==="string"&&m.content.trim()&&(!Object.prototype.hasOwnProperty.call(m,"relatedProjectIds")||(Array.isArray(m.relatedProjectIds)&&m.relatedProjectIds.length===1&&m.relatedProjectIds[0]===projectId));
+          if(records.some(m=>!canonical(m)&&!legacy(m)))return deny("invalid-recovered-conversation");
+          const converted=records.map((m,i)=>canonical(m)?clone(m):({
+             id:"recovered-"+projectId+"-"+recovered.revision+"-"+i,
+             type:"conversation",lifecycleStatus:"active",summary:"",
+             creatorMessage:m.role==="creator"?m.content:"",
+             mentorResponse:m.role==="mentor"?m.content:"",
+             relatedProjectIds:[projectId],relatedIdeaIds:[],strategies:[],memorableMoments:[],
+             metadata:{projectId,recoveredRevision:recovered.revision},
+             createdAt:new Date(i).toISOString(),updatedAt:new Date(i).toISOString()
+          }));
+          if(new Set(converted.map(m=>m.id)).size!==converted.length)return deny("duplicate-recovered-conversation");
+          next.conversations=converted;`+s.slice(outer+1);
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-mixed-admission.mjs
+          node diagnostic-expanded-security.mjs
+          node diagnostic-reload.mjs
