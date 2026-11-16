@@ -789,3 +789,20 @@ jobs:
           fs.writeFileSync('diagnostic-explicit-optout.mjs',s);
           NODE
           node diagnostic-explicit-optout.mjs
+      - name: Mandatory facade authority candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/CreatorMemory.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='requireSharedWriteAuthority = true,';
+          if(s.split(a).length!==2)throw Error('Unexpected strict default anchor');
+          s=s.replace(a,'requireSharedWriteAuthority: requestedSharedWriteAuthority = true,');
+          const b='const durableStorage = resolveFacadeDurableStorage(coreOptions.storageAdapter);';
+          if(s.split(b).length!==2)throw Error('Unexpected facade construction anchor');
+          s=s.replace(b,'const requireSharedWriteAuthority = true;\n  '+b);
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-explicit-optout.mjs
