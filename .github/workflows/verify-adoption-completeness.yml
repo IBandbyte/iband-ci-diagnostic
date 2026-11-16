@@ -138,3 +138,27 @@ jobs:
           node scripts/verify-movie-mentor-recovery-adoption-transaction.mjs
           node scripts/verify-movie-mentor-recovery-locked-commit.mjs
           node diagnostic-conversion.mjs
+      - name: Multiple speakers and invalid adoption controls
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-conversion.mjs','utf8');
+          const fixture="{projectId,role:'creator',content:'A moonlit harbour'}";
+          if(s.split(fixture).length!==2)throw Error('Unexpected fixture anchor');
+          s=s.replace(fixture,fixture+",{projectId,role:'mentor',content:'Start with the lighthouse'},{projectId,role:'creator',content:'Add a storm'}");
+          const expected='[{role:"creator",text:"A moonlit harbour"}]';
+          if(s.split(expected).length!==2)throw Error('Unexpected expectation anchor');
+          s=s.replace(expected,'[{role:"creator",text:"A moonlit harbour"},{role:"mentor",text:"Start with the lighthouse"},{role:"creator",text:"Add a storm"}]');
+          const anchor='const allowed=await commitMovieMentorRecoveryWithLock(';
+          if(s.split(anchor).length!==2)throw Error('Unexpected negative control anchor');
+          s=s.replace(anchor,`for(const bad of [{projectId:"foreign",role:"creator",content:"foreign"},{projectId,role:"unknown",content:"bad"},{projectId,role:"creator",content:" "}]) {
+            const before=JSON.stringify(read());
+            const rejected=await commitMovieMentorRecoveryWithLock({projectId,recovered:{...recovered,conversationMessages:[...recovered.conversationMessages,bad]},readLocalState:read,commit,locks:navigator.locks});
+            if(rejected.allowed!==false||JSON.stringify(read())!==before||commits!==0)throw Error("Invalid adoption was not denied atomically");
+          }
+          `+anchor);
+          fs.writeFileSync('diagnostic-multiple.mjs',s);
+          NODE
+          node diagnostic-multiple.mjs
