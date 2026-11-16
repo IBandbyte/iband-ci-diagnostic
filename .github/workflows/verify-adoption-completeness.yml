@@ -735,3 +735,31 @@ jobs:
           fs.writeFileSync('diagnostic-raw-bypass.mjs',s);
           NODE
           node diagnostic-raw-bypass.mjs
+      - name: Fresh legacy writer authority boundary
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-stale-legacy.mjs','utf8');
+          const a='console.log("GREEN STALE_LEGACY_WRITER_DENIAL");';
+          if(s.split(a).length!==2)throw Error('Unexpected fresh legacy anchor');
+          s=s.replace(a,a+`
+          const freshTab=await page.context().newPage();
+          await freshTab.goto(page.url());
+          const freshOutcome=await freshTab.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            try {
+              const legacy=createMemory({storageKey:"diagnostic-adoption-only"});
+              return {result:legacy.rememberConversation({creatorMessage:"Uncoordinated fresh legacy write",relatedProjectIds:["film-a"]})};
+            } catch(e){return {error:String(e)};}
+          });
+          const afterFresh=await page.evaluate(()=>localStorage.getItem("diagnostic-adoption-only"));
+          console.log("FRESH_LEGACY_WRITER",JSON.stringify({outcome:freshOutcome,unchanged:afterFresh===bytes}));
+          await freshTab.close();
+          assert.equal(afterFresh,bytes,"Fresh uncoordinated legacy instance must not mutate recovered history");
+          console.log("GREEN FRESH_LEGACY_WRITER_DENIAL");
+          `);
+          fs.writeFileSync('diagnostic-fresh-legacy.mjs',s);
+          NODE
+          node diagnostic-fresh-legacy.mjs
