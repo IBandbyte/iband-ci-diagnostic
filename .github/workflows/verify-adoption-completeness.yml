@@ -106,3 +106,35 @@ jobs:
           fs.writeFileSync('diagnostic-resume.mjs',updated.replace(assertion,assertion+'\n  assert.equal(result.resume?.projectId,"film-a");\n  assert.equal(result.resume?.projectJourney?.currentStageId,"story");\n  assert.deepEqual(result.resume?.conversationMessages?.map(m=>({role:m.role,text:m.text})),[{role:"creator",text:"A moonlit harbour"}],"Fresh identity runtime must recover the original conversation");\n  console.log("GREEN FRESH_IDENTITY_RESUME");'));
           NODE
           node diagnostic-resume.mjs
+      - name: Isolated canonical conversation conversion candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          test -f diagnostic-resume.mjs
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          const source=fs.readFileSync(path,'utf8');
+          const anchor='if(Array.isArray(recovered.conversationMessages)) next.conversations=clone(recovered.conversationMessages);';
+          if(source.split(anchor).length!==2)throw Error('Unexpected conversion anchor');
+          fs.writeFileSync(path,source.replace(anchor,`if(Array.isArray(recovered.conversationMessages)){
+             const records=recovered.conversationMessages;
+             if(records.some(m=>!m||m.projectId!==projectId||!["creator","mentor"].includes(m.role)||typeof m.content!=="string"||!m.content.trim()))return deny("invalid-recovered-conversation");
+             next.conversations=records.map((m,i)=>({
+               id: "recovered-"+projectId+"-"+recovered.revision+"-"+i,
+               type:"conversation", lifecycleStatus:"active", summary:"",
+               creatorMessage:m.role==="creator"?m.content:"",
+               mentorResponse:m.role==="mentor"?m.content:"",
+               relatedProjectIds:[projectId], relatedIdeaIds:[], strategies:[], memorableMoments:[],
+               metadata:{projectId,recoveredRevision:recovered.revision},
+               createdAt:new Date(i).toISOString(),updatedAt:new Date(i).toISOString()
+             }));
+           }`));
+          const src=fs.readFileSync('diagnostic-resume.mjs','utf8');
+          const check="assert.deepEqual(result.state.conversations,result.expected,'Recovered conversation must survive adoption');";
+          if(src.split(check).length!==2)throw Error('Unexpected storage assertion anchor');
+          fs.writeFileSync('diagnostic-conversion.mjs',src.replace(check,`assert.deepEqual(result.state.conversations.map(m=>({projectId:m.metadata.projectId,role:m.creatorMessage?"creator":"mentor",content:m.creatorMessage||m.mentorResponse})),result.expected,'Recovered conversation semantics must survive conversion');`));
+          NODE
+          node scripts/verify-movie-mentor-recovery-adoption-transaction.mjs
+          node scripts/verify-movie-mentor-recovery-locked-commit.mjs
+          node diagnostic-conversion.mjs
