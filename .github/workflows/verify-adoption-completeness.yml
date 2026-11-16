@@ -713,3 +713,25 @@ jobs:
           fs.writeFileSync('diagnostic-stale-legacy.mjs',s);
           NODE
           node diagnostic-stale-legacy.mjs
+      - name: Raw storage bypass negative control
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-stale-legacy.mjs','utf8');
+          const a='console.log("GREEN STALE_LEGACY_WRITER_DENIAL");';
+          if(s.split(a).length!==2)throw Error('Unexpected raw bypass anchor');
+          s=s.replace(a,a+`
+          const bypassTab=await page.context().newPage();
+          await bypassTab.goto(page.url());
+          await bypassTab.evaluate(stale=>localStorage.setItem("diagnostic-adoption-only",JSON.stringify(stale)),continuation.state);
+          const afterBypass=await page.evaluate(()=>localStorage.getItem("diagnostic-adoption-only"));
+          console.log("RAW_STORAGE_BYPASS",JSON.stringify({unchanged:afterBypass===bytes,expectedRecords:JSON.parse(bytes).conversations.length,actualRecords:JSON.parse(afterBypass).conversations.length}));
+          await bypassTab.close();
+          assert.equal(afterBypass,bytes,"Raw legacy storage bypass must not overwrite recovered durable history");
+          console.log("GREEN RAW_STORAGE_BYPASS_DENIAL");
+          `);
+          fs.writeFileSync('diagnostic-raw-bypass.mjs',s);
+          NODE
+          node diagnostic-raw-bypass.mjs
