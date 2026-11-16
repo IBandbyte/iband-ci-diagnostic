@@ -370,3 +370,25 @@ jobs:
           node diagnostic-expanded-security.mjs
           node diagnostic-canonical-security.mjs
           node diagnostic-reload.mjs
+      - name: Mixed historical conversation physical admission
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-canonical-security.mjs','utf8');
+          const a='const security=[];';
+          if(s.split(a).length!==2)throw Error('Unexpected mixed admission anchor');
+          s=s.replace(a,`cases.push(["mixed-history",[canonicalRecord,{projectId,role:"creator",content:"Add a storm"}]]);
+          `+a);
+          const b='assert.equal(result.security.length,5);';
+          const d='assert.ok(result.security.every(c=>c.allowed===false&&c.unchanged&&c.zeroCommits),"All canonical security denials must be atomic");';
+          if(s.split(b).length!==2||s.split(d).length!==2)throw Error('Unexpected mixed admission assertion');
+          s=s.replace(b,'assert.equal(result.security.length,6);').replace(d,`assert.ok(result.security.filter(c=>c.label!=="mixed-history").every(c=>c.allowed===false&&c.unchanged&&c.zeroCommits),"Security regressions must remain denied");
+          const mixed=result.security.find(c=>c.label==="mixed-history");
+          assert.equal(mixed.allowed,true,"Valid mixed historical formats must be admitted");
+          assert.equal(mixed.zeroCommits,false);
+          `);
+          fs.writeFileSync('diagnostic-mixed-admission.mjs',s);
+          NODE
+          node diagnostic-mixed-admission.mjs
