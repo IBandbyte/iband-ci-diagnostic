@@ -67,3 +67,19 @@ jobs:
           }finally{if(browser)await browser.close();await vite.close();}
           NODE
           node diagnostic-adoption.mjs
+      - name: Isolated candidate conversation preservation repair
+        if: failure()
+        working-directory: frontend
+        run: |
+          test -f diagnostic-adoption.mjs
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          const source=fs.readFileSync(path,'utf8');
+          const anchor='   next.projects=[clone(recovered.project)];';
+          if(source.split(anchor).length!==2)throw Error('Unexpected repair anchor');
+          fs.writeFileSync(path,source.replace(anchor,anchor+'\n   if(Array.isArray(recovered.conversationMessages)) next.conversations=clone(recovered.conversationMessages);'));
+          NODE
+          node scripts/verify-movie-mentor-recovery-adoption-transaction.mjs
+          node scripts/verify-movie-mentor-recovery-locked-commit.mjs
+          node diagnostic-adoption.mjs
