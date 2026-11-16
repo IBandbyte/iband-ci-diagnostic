@@ -535,3 +535,45 @@ jobs:
           fs.writeFileSync('diagnostic-mixed-reload.mjs',s);
           NODE
           node diagnostic-mixed-reload.mjs
+      - name: Recovered history real settlement continuation and replay
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-mixed-reload.mjs','utf8');
+          const a='console.log("GREEN MIXED_PHYSICAL_RELOAD_SEQUENCE");';
+          if(s.split(a).length!==2)throw Error('Unexpected continuation anchor');
+          s=s.replace(a,a+`
+          const continuation=await page.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            const key="diagnostic-adoption-only";
+            const make=()=>createMemory({storageKey:key,requireSharedWriteAuthority:true});
+            const projectId="film-a",creatorTurnId="continuation-turn-1";
+            const input={locks:navigator.locks,projectId,creatorTurnId,conversation:{creatorMessage:"Show the waves",mentorResponse:"Use a wide shot",relatedProjectIds:[projectId]},handoff:{content:"Continue the harbour scene"}};
+            const first=await make().settleConversationWithSharedAuthority(input);
+            const bytes=localStorage.getItem(key);
+            const replay=await make().settleConversationWithSharedAuthority(input);
+            return {first,replay,state:JSON.parse(bytes),unchanged:bytes===localStorage.getItem(key),resume:createRuntime({memory:make()}).getResumeSnapshot()};
+          });
+          console.log("CONTINUATION_RESULT",JSON.stringify(continuation));
+          assert.deepEqual(continuation.state.conversations.slice(0,2),result.mixedState.conversations,"Settlement must preserve historical records");
+          assert.equal(continuation.state.conversations.length,3);
+          assert.equal(continuation.state.sessionHandoffs.length,1);
+          assert.equal(continuation.unchanged,true,"Replay must not change durable state");
+          assert.deepEqual(continuation.resume.conversationMessages.map(m=>m.text),["A moonlit harbour","Start with the lighthouse","Add a storm","Show the waves","Use a wide shot"]);
+          await page.reload();
+          const continuedAfter=await page.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            const key="diagnostic-adoption-only";
+            return {state:JSON.parse(localStorage.getItem(key)),resume:createRuntime({memory:createMemory({storageKey:key,requireSharedWriteAuthority:true})}).getResumeSnapshot()};
+          });
+          assert.deepEqual(continuedAfter.state,continuation.state);
+          assert.deepEqual(continuedAfter.resume.conversationMessages,continuation.resume.conversationMessages);
+          console.log("GREEN RECOVERED_REAL_SETTLEMENT_CONTINUATION_REPLAY_RELOAD");
+          `);
+          fs.writeFileSync('diagnostic-continuation.mjs',s);
+          NODE
+          node diagnostic-continuation.mjs
