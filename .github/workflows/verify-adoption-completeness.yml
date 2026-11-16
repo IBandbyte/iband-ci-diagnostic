@@ -208,3 +208,36 @@ jobs:
           fs.writeFileSync('diagnostic-canonical-producer.mjs',s);
           NODE
           node diagnostic-canonical-producer.mjs
+      - name: Isolated canonical preservation candidate and historical identity
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='const records=recovered.conversationMessages;';
+          const b='if(records.some(m=>';
+          if(s.split(a).length!==2||s.split(b).length!==2)throw Error('Unexpected candidate anchor');
+          s=s.replace(a,a+`
+             const canonical=m=>m&&m.type==="conversation"&&typeof m.id==="string"&&m.id.trim()&&m.metadata?.projectId===projectId&&Array.isArray(m.relatedProjectIds)&&m.relatedProjectIds.length===1&&m.relatedProjectIds[0]===projectId&&typeof m.creatorMessage==="string"&&typeof m.mentorResponse==="string"&&(m.creatorMessage.trim()||m.mentorResponse.trim())&&m.lifecycleStatus==="active";
+             if(records.length&&records.every(canonical)){
+               if(new Set(records.map(m=>m.id)).size!==records.length)return {allowed:false,reason:"duplicate-recovered-conversation"};
+               next.conversations=clone(records);
+             }else{`);
+          const end='updatedAt:new Date(i).toISOString()';
+          if(s.split(end).length!==2)throw Error('Unexpected conversion end');
+          s=s.replace(end,end).replace(/(updatedAt:new Date\(i\)\.toISOString\(\)\s*\}\)\);)/,'$1\n   }');
+          fs.writeFileSync(p,s);
+          let t=fs.readFileSync('diagnostic-canonical-producer.mjs','utf8');
+          const check="assert.deepEqual(result.state.conversations.map(m=>({projectId:m.metadata.projectId,role:m.creatorMessage?\"creator\":\"mentor\",content:m.creatorMessage||m.mentorResponse})),result.expected,'Recovered conversation semantics must survive conversion');";
+          if(t.split(check).length!==2)throw Error('Unexpected canonical assertion anchor');
+          t=t.replace(check,`assert.deepEqual(result.state.conversations,result.expected,"Entire canonical record must survive unchanged");
+            assert.deepEqual(result.resume.conversationMessages.map(m=>({id:m.id,createdAt:m.createdAt})),[{id:"historical-conversation-1:creator",createdAt:"2026-10-01T12:00:00.000Z"},{id:"historical-conversation-1:mentor",createdAt:"2026-10-01T12:00:05.000Z"}]);
+            assert.equal(result.resume.conversationMessages[1].metadata.backendMetadata.creatorTurnId,"original-turn-1");
+            console.log("GREEN CANONICAL_HISTORICAL_IDENTITY");`);
+          t=t.replace(',{role:"creator",text:"Add a storm"}','');
+          fs.writeFileSync('diagnostic-canonical-preservation.mjs',t);
+          NODE
+          node diagnostic-canonical-preservation.mjs
+          node diagnostic-reload.mjs
