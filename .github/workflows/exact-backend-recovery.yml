@@ -86,3 +86,32 @@ jobs:
       - name: Physical signed HTTP and durable Mongo creator recovery court
         working-directory: backend
         run: node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
+      - name: Fetch pinned frontend and examine real HTTP transport
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          cd backend
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs';
+          const source=fs.readFileSync(path,'utf8');
+          const anchor='  const owner=await get(sign("owner"));';
+          if(source.split(anchor).length!==2) throw Error('Unexpected examination anchor');
+          fs.writeFileSync('scripts/diagnostic-cross-repo-transport.mjs',source.replace(anchor,`  const {recoverMovieMentorCreatorState}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
+          const realFetch=(path,options)=>{assert.ok(path.startsWith("/api/movie-mentor/state/recovery/"));return fetch("http://127.0.0.1:"+recoveryServer.address().port+path,options);};
+          const recover=token=>recoverMovieMentorCreatorState({projectId:saved.projectId,getAuthToken:async()=>token,fetchImpl:realFetch});
+          const actual=await recover(sign("owner"));
+          assert.equal(actual.projectId,saved.projectId);
+          assert.equal(actual.revision,saved.revision);
+          assert.equal(actual.creatorStateGeneration,saved.creatorStateGeneration);
+          assert.deepEqual(actual.memoryContext,saved.memoryContext);
+          await assert.rejects(recover(sign("intruder")),{status:403});
+          await assert.rejects(recover(sign("owner",generateKeyPairSync("rsa",{modulusLength:2048}).privateKey)),{status:401});
+          console.log("GREEN CROSS_REPO_REAL_HTTP_TRANSPORT");
+          `+anchor));
+          NODE
+          export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_cross_repo?replicaSet=rs0'
+          export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
+          node scripts/diagnostic-cross-repo-transport.mjs
