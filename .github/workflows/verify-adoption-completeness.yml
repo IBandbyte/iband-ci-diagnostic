@@ -162,3 +162,29 @@ jobs:
           fs.writeFileSync('diagnostic-multiple.mjs',s);
           NODE
           node diagnostic-multiple.mjs
+      - name: Physical reload persistence and stable reconstructed identity
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const s=fs.readFileSync('diagnostic-multiple.mjs','utf8');
+          const anchor="console.log('GREEN ADOPTION_CONVERSATION_COMPLETENESS');";
+          if(s.split(anchor).length!==2)throw Error('Unexpected reload anchor');
+          fs.writeFileSync('diagnostic-reload.mjs',s.replace(anchor,anchor+`
+            await page.reload();
+            const after=await page.evaluate(async()=>{
+              const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+              const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+              const key='diagnostic-adoption-only';
+              const memory=createMemory({storageKey:key,requireSharedWriteAuthority:true});
+              return {state:JSON.parse(localStorage.getItem(key)),resume:createRuntime({memory}).getResumeSnapshot()};
+            });
+            assert.deepEqual(after.state,result.state,'Reload must not mutate stored state');
+            assert.equal(after.resume.projectId,result.resume.projectId);
+            assert.deepEqual(after.resume.projectJourney,result.resume.projectJourney);
+            assert.deepEqual(after.resume.conversationMessages,result.resume.conversationMessages,'Reload must preserve reconstructed message identity and content');
+            console.log("GREEN PHYSICAL_RELOAD_STABLE_CONVERSATION");
+          `));
+          NODE
+          node diagnostic-reload.mjs
