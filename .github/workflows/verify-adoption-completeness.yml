@@ -350,3 +350,23 @@ jobs:
           fs.writeFileSync('diagnostic-expanded-security.mjs',s);
           NODE
           node diagnostic-expanded-security.mjs
+      - name: Numeric credential and conflicting project identity candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const core='src/components/studio/mentor/CreatorMemoryCore.js';
+          const p='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let s=fs.readFileSync(core,'utf8');
+          const a='typeof item==="string"&&detectSensitiveSecret(key+": "+item).detected';
+          if(s.split(a).length!==2)throw Error('Unexpected numeric credential anchor');
+          fs.writeFileSync(core,s.replace(a,'(typeof item==="string"||typeof item==="number")&&detectSensitiveSecret(key+": "+item).detected'));
+          s=fs.readFileSync(p,'utf8');
+          const b='const records=recovered.conversationMessages;';
+          if(s.split(b).length!==2)throw Error('Unexpected identity admission anchor');
+          fs.writeFileSync(p,s.replace(b,b+`\n   if(records.some(m=>m&&[m.projectId,m.relatedProjectId,m.metadata?.projectId,m.metadata?.relatedProjectId].some(id=>id!==undefined&&id!==null&&id!==projectId)))return deny("conflicting-recovered-project-identity");`));
+          NODE
+          node diagnostic-expanded-security.mjs
+          node diagnostic-canonical-security.mjs
+          node diagnostic-reload.mjs
