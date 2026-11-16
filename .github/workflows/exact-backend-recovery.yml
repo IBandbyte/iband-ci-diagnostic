@@ -29,6 +29,22 @@ jobs:
       - name: Install isolated test dependencies without writing a lockfile
         working-directory: backend
         run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Independent synthetic Clerk credential diagnosis
+        working-directory: backend
+        run: |
+          node --input-type=module <<'NODE'
+          import {generateKeyPairSync,createSign} from 'node:crypto';
+          import {createMovieMentorProductionAuthenticationComposition} from './ai/MovieMentorProductionAuthenticationComposition.js';
+          const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+          const issuer='https://isolated-clerk.example', audience='movie-mentor-same-record', origin='http://127.0.0.1:7777';
+          const auth=createMovieMentorProductionAuthenticationComposition({env:{MOVIE_MENTOR_CLERK_JWT_KEY:publicKey.export({type:'spki',format:'pem'}),MOVIE_MENTOR_CLERK_AUTHORIZED_PARTIES_JSON:JSON.stringify([origin]),MOVIE_MENTOR_CLERK_ISSUER:issuer,MOVIE_MENTOR_AUDIENCE:audience}});
+          const now=Math.floor(Date.now()/1000);
+          const input=Buffer.from(JSON.stringify({alg:'RS256',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({iss:issuer,aud:audience,azp:origin,sub:'owner',sid:'isolated-session',iat:now,nbf:now-1,exp:now+300})).toString('base64url');
+          const signer=createSign('RSA-SHA256');signer.update(input);signer.end();
+          const credential=input+'.'+signer.sign(privateKey).toString('base64url');
+          try { const p=await auth.verifyCredential({credential,expectedIssuer:issuer,expectedAudience:audience}); console.log('DIRECT_AUTH_VERIFIED',p.verified===true); }
+          catch(e){console.log('DIRECT_AUTH_REJECTED',JSON.stringify({code:e.code,causeName:e.cause?.name,causeReason:e.cause?.reason,causeCode:e.cause?.code}));}
+          NODE
       - name: Start isolated MongoDB with replica-set mode enabled
         run: |
           docker run -d --name movie-mentor-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
