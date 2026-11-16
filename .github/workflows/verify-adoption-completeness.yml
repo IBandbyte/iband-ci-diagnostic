@@ -188,3 +188,23 @@ jobs:
           `));
           NODE
           node diagnostic-reload.mjs
+      - name: Canonical producer projection and adoption compatibility
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-reload.mjs','utf8');
+          const fixture="memoryContext:{conversations:[{projectId,role:'creator',content:'A moonlit harbour'},{projectId,role:'mentor',content:'Start with the lighthouse'},{projectId,role:'creator',content:'Add a storm'}]}";
+          if(s.split(fixture).length!==2)throw Error('Unexpected producer fixture anchor');
+          const anchor="const recovered=projectRecoveredCreatorWorkspace(";
+          if(s.split(anchor).length!==2)throw Error('Unexpected producer import anchor');
+          s=s.replace(anchor,`const {projectMemoryContext}=await import('/src/components/studio/mentor/MovieMentorDurableStateSync.js');
+            const canonical={id:"historical-conversation-1",type:"conversation",lifecycleStatus:"active",creatorMessage:"A moonlit harbour",mentorResponse:"Start with the lighthouse",relatedProjectIds:[projectId],metadata:{projectId,creatorTurnId:"original-turn-1"},createdAt:"2026-10-01T12:00:00.000Z",updatedAt:"2026-10-01T12:00:05.000Z"};
+            const projected=projectMemoryContext({conversations:[canonical]},projectId);
+            if(JSON.stringify(projected.conversations)!==JSON.stringify([canonical]))throw Error("Canonical producer lost historical fields");
+            const recovered=projectRecoveredCreatorWorkspace(`);
+          s=s.replace(fixture,"memoryContext:projected");
+          fs.writeFileSync('diagnostic-canonical-producer.mjs',s);
+          NODE
+          node diagnostic-canonical-producer.mjs
