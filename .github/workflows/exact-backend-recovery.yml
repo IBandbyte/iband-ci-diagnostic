@@ -86,3 +86,20 @@ jobs:
       - name: Physical signed HTTP and durable Mongo creator recovery court
         working-directory: backend
         run: node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
+      - name: Isolated fixture-only compatibility overlay and full recovery
+        if: ${{ failure() }}
+        working-directory: backend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs';
+          const source=fs.readFileSync(path,'utf8');
+          const pattern=/alg:\s*"RS256",\s*typ:\s*"JWT"/g;
+          if([...source.matchAll(pattern)].length!==1) throw Error('Expected exactly one synthetic header');
+          fs.writeFileSync(path,source.replace(pattern,'alg:"RS256",typ:"JWT",cat:"cl_B7d4PD111AAA"'));
+          NODE
+          git diff --exit-code -- ai
+          git diff -- scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
+          export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_category_overlay?replicaSet=rs0'
+          export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
+          node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
