@@ -577,3 +577,47 @@ jobs:
           fs.writeFileSync('diagnostic-continuation.mjs',s);
           NODE
           node diagnostic-continuation.mjs
+      - name: Recovered history concurrent shared authority settlement
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-continuation.mjs','utf8');
+          const a='console.log("GREEN RECOVERED_REAL_SETTLEMENT_CONTINUATION_REPLAY_RELOAD");';
+          if(s.split(a).length!==2)throw Error('Unexpected concurrent settlement anchor');
+          s=s.replace(a,a+`
+          const concurrent=await page.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            const key="diagnostic-adoption-only",projectId="film-a";
+            const make=()=>createMemory({storageKey:key,requireSharedWriteAuthority:true});
+            const left=make(),right=make();
+            const input=(id)=>({locks:navigator.locks,projectId,creatorTurnId:id,conversation:{creatorMessage:id+" creator",mentorResponse:id+" mentor",relatedProjectIds:[projectId]},handoff:{content:"Continue "+id}});
+            const results=await Promise.all([left.settleConversationWithSharedAuthority(input("parallel-a")),right.settleConversationWithSharedAuthority(input("parallel-b"))]);
+            const bytes=localStorage.getItem(key);
+            const replays=await Promise.all([make().settleConversationWithSharedAuthority(input("parallel-a")),make().settleConversationWithSharedAuthority(input("parallel-b"))]);
+            return {results,replays,unchanged:bytes===localStorage.getItem(key),state:JSON.parse(bytes),resume:createRuntime({memory:make()}).getResumeSnapshot()};
+          });
+          assert.ok(concurrent.results.every(x=>x.acquired&&x.value.status==="committed"));
+          assert.ok(concurrent.replays.every(x=>x.acquired&&x.value.status==="already-settled"));
+          assert.equal(concurrent.unchanged,true);
+          assert.deepEqual(concurrent.state.conversations.slice(0,3),continuation.state.conversations);
+          assert.equal(concurrent.state.conversations.length,5);
+          const tail=concurrent.state.conversations.slice(3);
+          assert.deepEqual(tail.map(x=>x.metadata.creatorTurnId).sort(),["parallel-a","parallel-b"]);
+          assert.deepEqual(concurrent.resume.conversationMessages.map(x=>x.text),[...continuation.resume.conversationMessages.map(x=>x.text),...tail.flatMap(x=>[x.creatorMessage,x.mentorResponse])]);
+          await page.reload();
+          const concurrentAfter=await page.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            const key="diagnostic-adoption-only";
+            return {state:JSON.parse(localStorage.getItem(key)),resume:createRuntime({memory:createMemory({storageKey:key,requireSharedWriteAuthority:true})}).getResumeSnapshot()};
+          });
+          assert.deepEqual(concurrentAfter.state,concurrent.state);
+          assert.deepEqual(concurrentAfter.resume.conversationMessages,concurrent.resume.conversationMessages);
+          console.log("GREEN RECOVERED_CONCURRENT_SETTLEMENT_REPLAY_RELOAD");
+          `);
+          fs.writeFileSync('diagnostic-concurrent-continuation.mjs',s);
+          NODE
+          node diagnostic-concurrent-continuation.mjs
