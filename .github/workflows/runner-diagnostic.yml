@@ -1,0 +1,13 @@
+name: Isolated Runner Diagnostic
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  runner-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify runner execution
+        run: echo "RUNNER_SCHEDULING_OK"
