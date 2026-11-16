@@ -83,3 +83,26 @@ jobs:
           node scripts/verify-movie-mentor-recovery-adoption-transaction.mjs
           node scripts/verify-movie-mentor-recovery-locked-commit.mjs
           node diagnostic-adoption.mjs
+      - name: Actual fresh identity runtime resume compatibility
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const path='diagnostic-adoption.mjs';
+          const source=fs.readFileSync(path,'utf8');
+          const anchor='              return {denied,preserved,allowed,commits,state:read(),expected:recovered.conversationMessages};';
+          if(source.split(anchor).length!==2)throw Error('Unexpected resume examination anchor');
+          fs.writeFileSync('diagnostic-resume.mjs',source.replace(anchor,`              const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                        const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+                        const memory=createMemory({storageKey:key,requireSharedWriteAuthority:true});
+                        const runtime=createRuntime({memory});
+                        const resume=runtime.getResumeSnapshot();
+                        return {denied,preserved,allowed,commits,state:read(),expected:recovered.conversationMessages,resume};`).replace("    console.log('GREEN ADOPTION_CONVERSATION_COMPLETENESS');","    console.log('GREEN ADOPTION_CONVERSATION_COMPLETENESS');"));
+          fs.appendFileSync('diagnostic-resume.mjs','');
+          const updated=fs.readFileSync('diagnostic-resume.mjs','utf8');
+          const assertion="  console.log('GREEN ADOPTION_CONVERSATION_COMPLETENESS');";
+          if(updated.split(assertion).length!==2)throw Error('Unexpected resume assertion anchor');
+          fs.writeFileSync('diagnostic-resume.mjs',updated.replace(assertion,assertion+'\n  assert.equal(result.resume?.projectId,"film-a");\n  assert.equal(result.resume?.projectJourney?.currentStageId,"story");\n  assert.deepEqual(result.resume?.conversationMessages?.map(m=>({role:m.role,text:m.text})),[{role:"creator",text:"A moonlit harbour"}],"Fresh identity runtime must recover the original conversation");\n  console.log("GREEN FRESH_IDENTITY_RESUME");'));
+          NODE
+          node diagnostic-resume.mjs
