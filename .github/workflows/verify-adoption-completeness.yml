@@ -297,3 +297,31 @@ jobs:
           NODE
           node diagnostic-canonical-security.mjs
           node diagnostic-reload.mjs
+      - name: Structured credential policy candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/CreatorMemoryCore.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='function containsSensitiveSecret(';
+          if(s.split(a).length!==2)throw Error('Unexpected predicate anchor');
+          const start=s.indexOf(a),end=s.indexOf('/**',start);
+          if(end<start)throw Error('Unexpected predicate boundary');
+          s=s.slice(0,start)+`function containsSensitiveSecret(...values) {
+            const seen=new Set();
+            const visit=value=>{
+              if(detectSensitiveSecret(value).detected)return true;
+              if(!value||typeof value!=="object"||seen.has(value))return false;
+              seen.add(value);
+              return Object.entries(value).some(([key,item])=>
+                (typeof item==="string"&&detectSensitiveSecret(key+": "+item).detected)||visit(item));
+            };
+            return values.some(visit);
+          }
+          `+s.slice(end);
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-canonical-security.mjs
+          node diagnostic-reload.mjs
