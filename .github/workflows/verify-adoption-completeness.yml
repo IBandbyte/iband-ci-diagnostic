@@ -763,3 +763,16 @@ jobs:
           fs.writeFileSync('diagnostic-fresh-legacy.mjs',s);
           NODE
           node diagnostic-fresh-legacy.mjs
+      - name: Isolated strict default authority candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/CreatorMemory.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='requireSharedWriteAuthority = false,';
+          if(s.split(a).length!==2)throw Error('Unexpected authority default anchor');
+          fs.writeFileSync(p,s.replace(a,'requireSharedWriteAuthority = true,'));
+          NODE
+          node diagnostic-fresh-legacy.mjs
