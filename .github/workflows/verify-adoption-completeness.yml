@@ -621,3 +621,49 @@ jobs:
           fs.writeFileSync('diagnostic-concurrent-continuation.mjs',s);
           NODE
           node diagnostic-concurrent-continuation.mjs
+      - name: Recovered history independent browser tab settlement
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-concurrent-continuation.mjs','utf8');
+          const a='console.log("GREEN RECOVERED_CONCURRENT_SETTLEMENT_REPLAY_RELOAD");';
+          if(s.split(a).length!==2)throw Error('Unexpected tab settlement anchor');
+          s=s.replace(a,a+`
+          const tab=await page.context().newPage();
+          await tab.goto(page.url());
+          const prepare=async(p)=>p.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            window.tabMemory=createMemory({storageKey:"diagnostic-adoption-only",requireSharedWriteAuthority:true});
+          });
+          await Promise.all([prepare(page),prepare(tab)]);
+          const settle=(p,id)=>p.evaluate(async(id)=>window.tabMemory.settleConversationWithSharedAuthority({locks:navigator.locks,projectId:"film-a",creatorTurnId:id,conversation:{creatorMessage:id+" creator",mentorResponse:id+" mentor",relatedProjectIds:["film-a"]},handoff:{content:"Continue "+id}}),id);
+          const results=await Promise.all([settle(page,"tab-a"),settle(tab,"tab-b")]);
+          assert.ok(results.every(x=>x.acquired&&x.value.status==="committed"));
+          const read=p=>p.evaluate(()=>localStorage.getItem("diagnostic-adoption-only"));
+          const bytes=await read(page);
+          assert.equal(await read(tab),bytes);
+          const stored=JSON.parse(bytes);
+          assert.deepEqual(stored.conversations.slice(0,5),concurrent.state.conversations);
+          assert.equal(stored.conversations.length,7);
+          assert.deepEqual(stored.conversations.slice(5).map(x=>x.metadata.creatorTurnId).sort(),["tab-a","tab-b"]);
+          const replays=await Promise.all([settle(page,"tab-b"),settle(tab,"tab-a")]);
+          assert.ok(replays.every(x=>x.acquired&&x.value.status==="already-settled"));
+          assert.equal(await read(page),bytes);
+          await Promise.all([page.reload(),tab.reload()]);
+          const resume=p=>p.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            return createRuntime({memory:createMemory({storageKey:"diagnostic-adoption-only",requireSharedWriteAuthority:true})}).getResumeSnapshot().conversationMessages;
+          });
+          const views=await Promise.all([resume(page),resume(tab)]);
+          assert.deepEqual(views[0],views[1]);
+          assert.deepEqual(views[0].map(x=>x.text),stored.conversations.flatMap(x=>[x.creatorMessage,x.mentorResponse].filter(Boolean)));
+          assert.equal(await read(tab),bytes);
+          await tab.close();
+          console.log("GREEN RECOVERED_CROSS_TAB_SETTLEMENT_REPLAY_RELOAD");
+          `);
+          fs.writeFileSync('diagnostic-cross-tab-continuation.mjs',s);
+          NODE
+          node diagnostic-cross-tab-continuation.mjs
