@@ -510,3 +510,28 @@ jobs:
           node diagnostic-mixed-sequence.mjs
           node diagnostic-expanded-security.mjs
           node diagnostic-reload.mjs
+      - name: Mixed historical source order after physical reload
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-mixed-sequence.mjs','utf8');
+          const a='console.log("GREEN PHYSICAL_RELOAD_STABLE_CONVERSATION");';
+          if(s.split(a).length!==2)throw Error('Unexpected mixed reload anchor');
+          s=s.replace(a,a+`
+          await page.evaluate(state=>localStorage.setItem("diagnostic-adoption-only",JSON.stringify(state)),result.mixedState);
+          await page.reload();
+          const mixedAfter=await page.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+            const key="diagnostic-adoption-only";
+            return {state:JSON.parse(localStorage.getItem(key)),resume:createRuntime({memory:createMemory({storageKey:key,requireSharedWriteAuthority:true})}).getResumeSnapshot()};
+          });
+          assert.deepEqual(mixedAfter.state,result.mixedState,"Mixed reload must preserve stored historical records");
+          assert.deepEqual(mixedAfter.resume.conversationMessages,result.mixedResume.conversationMessages,"Mixed reload must preserve exact message identity and sequence");
+          console.log("GREEN MIXED_PHYSICAL_RELOAD_SEQUENCE");
+          `);
+          fs.writeFileSync('diagnostic-mixed-reload.mjs',s);
+          NODE
+          node diagnostic-mixed-reload.mjs
