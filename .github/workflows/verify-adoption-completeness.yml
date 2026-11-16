@@ -241,3 +241,42 @@ jobs:
           NODE
           node diagnostic-canonical-preservation.mjs
           node diagnostic-reload.mjs
+      - name: Physical canonical security admission controls
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-canonical-preservation.mjs','utf8');
+          const anchor='const allowed=await commitMovieMentorRecoveryWithLock(';
+          if(s.split(anchor).length!==2)throw Error('Unexpected security anchor');
+          s=s.replace(anchor,`const canonicalRecord=recovered.conversationMessages[0];
+            const cases=[
+              ["duplicate",[canonicalRecord,canonicalRecord]],
+              ["foreign-project",[{...canonicalRecord,metadata:{...canonicalRecord.metadata,projectId:"foreign"}}]],
+              ["foreign-association",[{...canonicalRecord,relatedProjectIds:[projectId,"foreign"]}]],
+              ["credential-text",[{...canonicalRecord,creatorMessage:"password: SyntheticTestPassword123!"}]],
+              ["credential-metadata",[{...canonicalRecord,metadata:{...canonicalRecord.metadata,nested:{password:"SyntheticTestPassword123!"}}}]]
+            ];
+            const security=[];
+            for(const [label,records] of cases){
+              const before=JSON.stringify(read()),count=commits;
+              const verdict=await commitMovieMentorRecoveryWithLock({projectId,recovered:{...recovered,conversationMessages:records},readLocalState:read,commit,locks:navigator.locks});
+              security.push({label,allowed:verdict.allowed,unchanged:JSON.stringify(read())===before,zeroCommits:commits===count,reason:verdict.reason});
+              localStorage.setItem(key,before);
+              commits=count;
+            }
+          `+anchor);
+          const ret='expected:recovered.conversationMessages,resume};';
+          if(s.split(ret).length!==2)throw Error('Unexpected security result anchor');
+          s=s.replace(ret,'expected:recovered.conversationMessages,resume,security};');
+          const check='assert.equal(result.denied.allowed,false);';
+          if(s.split(check).length!==2)throw Error('Unexpected security assertion anchor');
+          s=s.replace(check,`for(const control of result.security)console.log("SECURITY_CONTROL",JSON.stringify(control));
+            assert.equal(result.security.length,5);
+            assert.ok(result.security.every(c=>c.allowed===false&&c.unchanged&&c.zeroCommits),"All canonical security denials must be atomic");
+            console.log("GREEN CANONICAL_SECURITY_ADMISSION");
+          `+check);
+          fs.writeFileSync('diagnostic-canonical-security.mjs',s);
+          NODE
+          node diagnostic-canonical-security.mjs
