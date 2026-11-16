@@ -280,3 +280,20 @@ jobs:
           fs.writeFileSync('diagnostic-canonical-security.mjs',s);
           NODE
           node diagnostic-canonical-security.mjs
+      - name: Existing secret policy integration candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const core='src/components/studio/mentor/CreatorMemoryCore.js';
+          const p='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let c=fs.readFileSync(core,'utf8'),s=fs.readFileSync(p,'utf8');
+          if(c.includes('export { containsSensitiveSecret }'))throw Error('Unexpected existing export');
+          fs.writeFileSync(core,c+'\nexport { containsSensitiveSecret };\n');
+          const a='const records=recovered.conversationMessages;';
+          if(s.split(a).length!==2)throw Error('Unexpected security insertion anchor');
+          fs.writeFileSync(p,'import {containsSensitiveSecret} from "./CreatorMemoryCore.js";\n'+s.replace(a,a+'\n   if(containsSensitiveSecret(records))return deny("sensitive-recovered-conversation");'));
+          NODE
+          node diagnostic-canonical-security.mjs
+          node diagnostic-reload.mjs
