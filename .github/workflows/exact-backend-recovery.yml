@@ -99,7 +99,7 @@ jobs:
           const source=fs.readFileSync(path,'utf8');
           const anchor='  const owner=await get(sign("owner"));';
           if(source.split(anchor).length!==2) throw Error('Unexpected examination anchor');
-          fs.writeFileSync('scripts/diagnostic-cross-repo-transport.mjs',source.replace(anchor,`  const {recoverMovieMentorCreatorState}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
+          fs.writeFileSync('scripts/diagnostic-cross-repo-transport.mjs',source.replace('memoryContext:{note:"isolated real transition "+id}', 'memoryContext:{note:"isolated real transition "+id,conversations:[{projectId:project(id),role:"creator",content:"A moonlit harbour"}]},projectJourney:{projectId:project(id),currentStageId:"story",currentTaskId:"outline"},creatorConfirmedContext:[{key:"project",value:{id:project(id),title:"Harbour Film",creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]').replace(anchor,`  const {recoverMovieMentorCreatorState}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
           const realFetch=(path,options)=>{assert.ok(path.startsWith("/api/movie-mentor/state/recovery/"));return fetch("http://127.0.0.1:"+recoveryServer.address().port+path,options);};
           const recover=token=>recoverMovieMentorCreatorState({projectId:saved.projectId,getAuthToken:async()=>token,fetchImpl:realFetch});
           const actual=await recover(sign("owner"));
@@ -110,6 +110,17 @@ jobs:
           await assert.rejects(recover(sign("intruder")),{status:403});
           await assert.rejects(recover(sign("owner",generateKeyPairSync("rsa",{modulusLength:2048}).privateKey)),{status:401});
           console.log("GREEN CROSS_REPO_REAL_HTTP_TRANSPORT");
+          const {projectRecoveredCreatorWorkspace}=await import("../../frontend/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js");
+          const view=projectRecoveredCreatorWorkspace({projectId:saved.projectId,state:actual});
+          assert.equal(view.project.title,"Harbour Film");
+          assert.equal(view.project.id,saved.projectId);
+          assert.equal(view.projectJourney.currentStageId,"story");
+          assert.equal(view.projectJourney.currentTaskId,"outline");
+          assert.equal(view.conversationMessages[0].content,"A moonlit harbour");
+          assert.equal(view.revision,saved.revision);
+          assert.equal(view.creatorStateGeneration,saved.creatorStateGeneration);
+          assert.throws(()=>projectRecoveredCreatorWorkspace({projectId:"other-project",state:actual}),{code:"MOVIE_MENTOR_RECOVERY_PROJECTION_INVALID"});
+          console.log("GREEN CROSS_REPO_DURABLE_WORKSPACE_PROJECTION");
           `+anchor));
           NODE
           export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_cross_repo?replicaSet=rs0'
