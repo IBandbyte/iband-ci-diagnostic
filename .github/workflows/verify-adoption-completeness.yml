@@ -325,3 +325,28 @@ jobs:
           NODE
           node diagnostic-canonical-security.mjs
           node diagnostic-reload.mjs
+      - name: Expanded physical security and benign dialogue controls
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-canonical-security.mjs','utf8');
+          const a='const security=[];';
+          if(s.split(a).length!==2)throw Error('Unexpected expanded security anchor');
+          s=s.replace(a,`cases.push(
+            ["nested-api-key",[{...canonicalRecord,metadata:{...canonicalRecord.metadata,items:[{api_key:"SyntheticKey123456"}]}}]],
+            ["numeric-pin",[{...canonicalRecord,metadata:{...canonicalRecord.metadata,pin:123456}}]],
+            ["foreign-direct",[{...canonicalRecord,projectId:"foreign"}]],
+            ["foreign-singular",[{...canonicalRecord,relatedProjectId:"foreign"}]],
+            ["legacy-credential",[{projectId,role:"creator",content:"Bearer syntheticToken123456789"}]],
+            ["benign-dialogue",[{...canonicalRecord,creatorMessage:"The detective forgot the password and asked for help."}]]
+          );
+          `+a);
+          const b='assert.equal(result.security.length,5);';
+          const d='assert.ok(result.security.every(c=>c.allowed===false&&c.unchanged&&c.zeroCommits),"All canonical security denials must be atomic");';
+          if(s.split(b).length!==2||s.split(d).length!==2)throw Error('Unexpected expanded assertion anchor');
+          s=s.replace(b,'assert.equal(result.security.length,11);').replace(d,`assert.ok(result.security.every(c=>c.label==="benign-dialogue"?c.allowed===true&&!c.unchanged&&!c.zeroCommits:c.allowed===false&&c.unchanged&&c.zeroCommits),"Expanded security admission mismatch");`);
+          fs.writeFileSync('diagnostic-expanded-security.mjs',s);
+          NODE
+          node diagnostic-expanded-security.mjs
