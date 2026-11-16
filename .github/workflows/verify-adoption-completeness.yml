@@ -459,3 +459,18 @@ jobs:
           fs.writeFileSync('diagnostic-mixed-integrity.mjs',s);
           NODE
           node diagnostic-mixed-integrity.mjs
+      - name: Truthful missing legacy timestamps candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='createdAt:new Date(i).toISOString(),updatedAt:new Date(i).toISOString()';
+          if(s.split(a).length!==2)throw Error('Unexpected timestamp repair anchor');
+          fs.writeFileSync(p,s.replace(a,'createdAt:null,updatedAt:null'));
+          NODE
+          node diagnostic-mixed-integrity.mjs
+          node diagnostic-expanded-security.mjs
+          node diagnostic-reload.mjs
