@@ -776,3 +776,16 @@ jobs:
           fs.writeFileSync(p,s.replace(a,'requireSharedWriteAuthority = true,'));
           NODE
           node diagnostic-fresh-legacy.mjs
+      - name: Explicit authority opt out negative control
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-fresh-legacy.mjs','utf8');
+          const a='const legacy=createMemory({storageKey:"diagnostic-adoption-only"});';
+          if(s.split(a).length!==2)throw Error('Unexpected explicit opt out anchor');
+          s=s.replace(a,'const legacy=createMemory({storageKey:"diagnostic-adoption-only",requireSharedWriteAuthority:false});');
+          fs.writeFileSync('diagnostic-explicit-optout.mjs',s);
+          NODE
+          node diagnostic-explicit-optout.mjs
