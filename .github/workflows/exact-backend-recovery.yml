@@ -45,6 +45,15 @@ jobs:
           const credential=input+'.'+signer.sign(privateKey).toString('base64url');
           try { const p=await auth.verifyCredential({credential,expectedIssuer:issuer,expectedAudience:audience}); console.log('DIRECT_AUTH_VERIFIED',p.verified===true); }
           catch(e){console.log('DIRECT_AUTH_REJECTED',JSON.stringify({code:e.code,causeName:e.cause?.name,causeReason:e.cause?.reason,causeCode:e.cause?.code,causeMessage:String(e.cause?.message||'').replace(/[A-Za-z0-9_-]{20,}/g,'[redacted]')}));}
+          for(const [label,cat,key] of [['session','cl_B7d4PD111AAA',privateKey],['machine','cl_B7d4PD333AAA',privateKey],['forged','cl_B7d4PD111AAA',generateKeyPairSync('rsa',{modulusLength:2048}).privateKey]]) {
+            const data=Buffer.from(JSON.stringify({alg:'RS256',typ:'JWT',cat})).toString('base64url')+'.'+input.split('.')[1];
+            const s=createSign('RSA-SHA256');s.update(data);s.end();
+            let accepted=false;
+            try { const p=await auth.verifyCredential({credential:data+'.'+s.sign(key).toString('base64url'),expectedIssuer:issuer,expectedAudience:audience}); accepted=p.verified===true; }
+            catch(e){console.log('CATEGORY_REJECTION',label,e.code,e.cause?.reason,String(e.cause?.message||'').replace(/[A-Za-z0-9_-]{20,}/g,'[redacted]'));}
+            console.log('CATEGORY_RESULT',label,accepted);
+            if(accepted!==(label==='session')) process.exitCode=1;
+          }
           const fs=await import('node:fs');
           const sdk=fs.readFileSync('node_modules/@clerk/backend/dist/index.js','utf8');
           for(const line of sdk.split('\n').filter(x=>/JWT_CATEGORY_|function isNonSessionJwtCategory|function isSessionJwtCategory/.test(x))) console.log('SDK_CATEGORY',line.trim().slice(0,500));
