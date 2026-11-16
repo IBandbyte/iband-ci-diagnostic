@@ -474,3 +474,18 @@ jobs:
           node diagnostic-mixed-integrity.mjs
           node diagnostic-expanded-security.mjs
           node diagnostic-reload.mjs
+      - name: Explicit mixed source sequence physical assertion
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-mixed-integrity.mjs','utf8');
+          const a='assert.equal(result.mixedResume.conversationMessages.length,3);';
+          if(s.split(a).length!==2)throw Error('Unexpected sequence assertion anchor');
+          s=s.replace(a,a+`
+          assert.deepEqual(result.mixedResume.conversationMessages.map(m=>m.text),["A moonlit harbour","Start with the lighthouse","Add a storm"],"Mixed recovery must preserve source sequence independent of dates");
+          `);
+          fs.writeFileSync('diagnostic-mixed-sequence.mjs',s);
+          NODE
+          node diagnostic-mixed-sequence.mjs
