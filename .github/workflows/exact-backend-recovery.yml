@@ -18,11 +18,11 @@ jobs:
         run: |
           git init backend
           git -C backend remote add origin https://github.com/IBandbyte/iband-backend-first.git
-          git -C backend fetch --depth=1 origin 1f283d3c1ab1ecb3074785007f2bc50a66998af0
+          git -C backend fetch --depth=1 origin f367cd1964bac89b7ba23f1a662c0df19c3b8d16
           git -C backend checkout --detach FETCH_HEAD
-          test "$(git -C backend rev-parse HEAD)" = "1f283d3c1ab1ecb3074785007f2bc50a66998af0"
+          test "$(git -C backend rev-parse HEAD)" = "f367cd1964bac89b7ba23f1a662c0df19c3b8d16"
           git -C backend remote remove origin
-          echo "EXACT_BACKEND_SHA=1f283d3c1ab1ecb3074785007f2bc50a66998af0"
+          echo "EXACT_BACKEND_SHA=f367cd1964bac89b7ba23f1a662c0df19c3b8d16"
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -86,20 +86,3 @@ jobs:
       - name: Physical signed HTTP and durable Mongo creator recovery court
         working-directory: backend
         run: node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
-      - name: Isolated fixture-only compatibility overlay and full recovery
-        if: ${{ failure() }}
-        working-directory: backend
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const path='scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs';
-          const source=fs.readFileSync(path,'utf8');
-          const pattern=/alg:\s*"RS256",\s*typ:\s*"JWT"/g;
-          if([...source.matchAll(pattern)].length!==1) throw Error('Expected exactly one synthetic header');
-          fs.writeFileSync(path,source.replace(pattern,'alg:"RS256",typ:"JWT",cat:"cl_B7d4PD111AAA"'));
-          NODE
-          git diff --exit-code -- ai
-          git diff -- scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
-          export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_category_overlay?replicaSet=rs0'
-          export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
-          node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
