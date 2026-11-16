@@ -92,7 +92,11 @@ jobs:
           git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git a1996da41989fd3a1d5ccc99f4d425c468a292f8
           git -C frontend checkout --detach FETCH_HEAD
           test "$(git -C frontend rev-parse HEAD)" = a1996da41989fd3a1d5ccc99f4d425c468a292f8
-          cd backend
+          cd frontend
+          npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-package-lock playwright
+          npx playwright install --with-deps chromium
+          cd ../backend
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const path='scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs';
@@ -121,8 +125,52 @@ jobs:
           assert.equal(view.creatorStateGeneration,saved.creatorStateGeneration);
           assert.throws(()=>projectRecoveredCreatorWorkspace({projectId:"other-project",state:actual}),{code:"MOVIE_MENTOR_RECOVERY_PROJECTION_INVALID"});
           console.log("GREEN CROSS_REPO_DURABLE_WORKSPACE_PROJECTION");
+          const {runBrowserCourt}=await import("../../frontend/diagnostic-browser-court.mjs");
+          await runBrowserCourt({port:recoveryServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),intruderToken:sign("intruder")});
+          assert.deepEqual(await states.findOne({projectId:saved.projectId}),saved);
+          console.log("GREEN CROSS_REPO_BROWSER_READONLY_RECOVERY");
           `+anchor));
           NODE
+          cat > ../frontend/diagnostic-browser-court.mjs <<'BROWSER'
+          import assert from 'node:assert/strict';
+          import {chromium} from 'playwright';
+          import {createServer} from 'vite';
+          import fs from 'node:fs';
+          import {fileURLToPath} from 'node:url';
+          export async function runBrowserCourt({port,projectId,ownerToken,intruderToken}){
+            const root=fileURLToPath(new URL('.',import.meta.url));
+            fs.writeFileSync(root+'diagnostic-recovery.html','<!doctype html><div id="root"></div><script type="module" src="/diagnostic-recovery.jsx"></script>');
+            fs.writeFileSync(root+'diagnostic-recovery.jsx',`import React from 'react';import {createRoot} from 'react-dom/client';import Workspace from './src/components/studio/CreatorWorkspace.jsx';import {setMovieMentorCreatorAuthState} from './src/components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>window.__isolatedToken});createRoot(document.getElementById('root')).render(<Workspace/>);`);
+            const vite=await createServer({root,server:{host:'127.0.0.1',port:4188,strictPort:true,proxy:{'/api/movie-mentor':{target:'http://127.0.0.1:'+port}}}});
+            let browser;
+            try{
+              await vite.listen();
+              browser=await chromium.launch({headless:true});
+              for(const [token,owner] of [[ownerToken,true],[intruderToken,false]]){
+                const context=await browser.newContext();
+                await context.addInitScript(t=>{window.__isolatedToken=t;window.__initialStorageLength=localStorage.length;},token);
+                const page=await context.newPage();
+                await page.goto('http://127.0.0.1:4188/diagnostic-recovery.html');
+                assert.equal(await page.evaluate(()=>window.__initialStorageLength),0);
+                const section=page.getByRole('region',{name:'Recover an existing Movie Mentor project'});
+                await section.getByRole('textbox',{name:'Existing movie project ID'}).fill(projectId);
+                const pending=page.waitForResponse(r=>r.url().includes('/state/recovery/')&&r.request().method()==='GET');
+                await section.getByRole('button',{name:'Recover movie preview'}).click();
+                assert.equal((await pending).status(),owner?200:403);
+                if(owner){
+                  await section.getByRole('heading',{name:'Harbour Film'}).waitFor();
+                  await section.getByText('Saved stage: story; task: outline',{exact:false}).waitFor();
+                  await section.getByText('A moonlit harbour',{exact:true}).waitFor();
+                  await section.getByText('Saved revision: 1. This is a read-only preview; editing is not enabled.',{exact:true}).waitFor();
+                }else{
+                  await section.getByRole('alert').waitFor();
+                  assert.equal(await section.getByRole('heading',{name:'Harbour Film'}).count(),0);
+                }
+                await context.close();
+              }
+            }finally{if(browser)await browser.close();await vite.close();}
+          }
+          BROWSER
           export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_cross_repo?replicaSet=rs0'
           export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
           node scripts/diagnostic-cross-repo-transport.mjs
