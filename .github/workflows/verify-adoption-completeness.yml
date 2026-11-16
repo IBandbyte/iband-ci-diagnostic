@@ -489,3 +489,24 @@ jobs:
           fs.writeFileSync('diagnostic-mixed-sequence.mjs',s);
           NODE
           node diagnostic-mixed-sequence.mjs
+      - name: Isolated recovered source order runtime candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='const conversations = (memory.getRecentConversations?.(Math.max(limit, 1) * 2) || [])';
+          if(s.split(a).length!==2)throw Error('Unexpected runtime sequence anchor');
+          s=s.replace(a,`const stored=memory.getState?.()?.conversations;
+          const recovered=Array.isArray(stored)?stored.filter(c=>conversationBelongsToProject(c,pid)&&c.lifecycleStatus==="active"):[];
+          if(recovered.some(c=>c.metadata?.recoveredRevision!==undefined)&&recovered.every(c=>c.lifecycleStatus==="active")){
+            return recovered.slice(-Math.max(1,limit)).flatMap(conversationToMessages);
+          }
+          `+a);
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-mixed-sequence.mjs
+          node diagnostic-expanded-security.mjs
+          node diagnostic-reload.mjs
