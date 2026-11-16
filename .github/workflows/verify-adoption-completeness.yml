@@ -424,3 +424,38 @@ jobs:
           node diagnostic-mixed-admission.mjs
           node diagnostic-expanded-security.mjs
           node diagnostic-reload.mjs
+      - name: Mixed historical integrity and truthful timestamps
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-canonical-preservation.mjs','utf8');
+          const a='const allowed=await commitMovieMentorRecoveryWithLock(';
+          if(s.split(a).length!==2)throw Error('Unexpected mixed integrity anchor');
+          s=s.replace(a,`const mixedRecords=[recovered.conversationMessages[0],{projectId,role:"creator",content:"Add a storm"}];
+          const mixed=await commitMovieMentorRecoveryWithLock({projectId,recovered:{...recovered,conversationMessages:mixedRecords},readLocalState:read,commit,locks:navigator.locks});
+          const mixedState=read();
+          const {default:createMixedMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+          const {default:createMixedRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+          const mixedResume=createMixedRuntime({memory:createMixedMemory({storageKey:key,requireSharedWriteAuthority:true})}).getResumeSnapshot();
+          localStorage.setItem(key,JSON.stringify({projects:[],conversations:[],journey:{}}));
+          commits=0;
+          `+a);
+          const b='expected:recovered.conversationMessages,resume};';
+          if(s.split(b).length!==2)throw Error('Unexpected mixed integrity result anchor');
+          s=s.replace(b,'expected:recovered.conversationMessages,resume,mixed,mixedState,mixedResume};');
+          const d='console.log("GREEN CANONICAL_HISTORICAL_IDENTITY");';
+          if(s.split(d).length!==2)throw Error('Unexpected mixed assertion anchor');
+          s=s.replace(d,d+`
+          assert.equal(result.mixed.allowed,true);
+          assert.equal(result.mixedState.conversations.length,2);
+          assert.deepEqual(result.mixedState.conversations[0],result.expected[0]);
+          assert.equal(result.mixedState.conversations[1].creatorMessage,"Add a storm");
+          assert.equal(result.mixedResume.conversationMessages.length,3);
+          console.log("MIXED_HISTORY_INTEGRITY",JSON.stringify({legacyCreatedAt:result.mixedState.conversations[1].createdAt,legacyUpdatedAt:result.mixedState.conversations[1].updatedAt,messages:result.mixedResume.conversationMessages.map(m=>({id:m.id,role:m.role,text:m.text,createdAt:m.createdAt}))}));
+          assert.ok(result.mixedState.conversations[1].createdAt==null&&result.mixedState.conversations[1].updatedAt==null,"Missing historical timestamps must not be fabricated");
+          `);
+          fs.writeFileSync('diagnostic-mixed-integrity.mjs',s);
+          NODE
+          node diagnostic-mixed-integrity.mjs
