@@ -667,3 +667,17 @@ jobs:
           fs.writeFileSync('diagnostic-cross-tab-continuation.mjs',s);
           NODE
           node diagnostic-cross-tab-continuation.mjs
+      - name: Explicit shared browser context harness correction
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='diagnostic-cross-tab-continuation.mjs';
+          let s=fs.readFileSync(p,'utf8');
+          const a=/await browser\.newPage\(([^()]*)\)/g;
+          if([...s.matchAll(a)].length!==1)throw Error('Unexpected single-page browser anchor');
+          s=s.replace(a,(_,options)=>'await (await browser.newContext('+options+')).newPage()');
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-cross-tab-continuation.mjs
