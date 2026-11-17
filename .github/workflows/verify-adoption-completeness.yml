@@ -1100,3 +1100,56 @@ jobs:
           fs.writeFileSync('diagnostic-quarantine-journal.mjs',test);
           NODE
           node diagnostic-quarantine-journal.mjs
+      - name: Adversarial local recovery journal controls
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-quarantine-journal.mjs','utf8');
+          const a='console.log("GREEN QUARANTINE_TRANSACTION_IDENTITY");';
+          if(s.split(a).length!==2)throw Error("Unexpected journal examination anchor");
+          s=s.replace(a,a+`
+          const adversarial=await page.evaluate(async original=>{
+            const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+            const cases=["altered-content","foreign-project","missing-journal","corrupt-journal","changed-generation","legitimate"];
+            const results=[];
+            for(const name of cases){
+              const key="diagnostic-journal-"+name,raw="{damaged";
+              localStorage.setItem(key,raw);
+              let injections=0;
+              const storage={getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{if(k===key){injections++;throw Error("Injected interruption");}localStorage.setItem(k,v);}};
+              const first=await reconstructMalformedCache({projectId:"film-a",recovered:original,storage,key,locks:navigator.locks});
+              let recovered=structuredClone(original),projectId="film-a";
+              if(name==="altered-content")recovered.conversationMessages[0].content="Substituted story";
+              if(name==="foreign-project"){
+                projectId="film-b";
+                recovered.project.id=projectId;
+                recovered.project.metadata.projectJourney.projectId=projectId;
+                recovered.projectJourney.projectId=projectId;
+                recovered.conversationMessages[0].projectId=projectId;
+              }
+              if(name==="missing-journal")localStorage.removeItem(key+".recovery-journal");
+              if(name==="corrupt-journal")localStorage.setItem(key+".recovery-journal","{invalid");
+              if(name==="changed-generation")recovered.creatorStateGeneration++;
+              const before=localStorage.getItem(key+".recovery-journal");
+              const retry=await reconstructMalformedCache({projectId,recovered,storage:localStorage,key,locks:navigator.locks});
+              results.push({name,first,injections,retry,rawPreserved:localStorage.getItem(key)===raw,backupPreserved:localStorage.getItem(key+".quarantine")===raw,journalPreserved:localStorage.getItem(key+".recovery-journal")===before,restored:name==="legitimate"&&retry.allowed?JSON.parse(localStorage.getItem(key)).conversations[0].creatorMessage:null});
+            }
+            return results;
+          },interrupted.recovered);
+          console.log("ADVERSARIAL_RECOVERY_JOURNAL",JSON.stringify(adversarial));
+          for(const x of adversarial){
+            assert.equal(x.first.allowed,false,x.name);
+            assert.equal(x.injections,1,x.name);
+            assert.equal(x.backupPreserved,true,x.name);
+            assert.equal(x.journalPreserved,true,x.name);
+            assert.equal(x.retry.allowed,x.name==="legitimate",x.name);
+            assert.equal(x.rawPreserved,x.name!=="legitimate",x.name);
+            if(x.name==="legitimate")assert.equal(x.restored,"A moonlit harbour");
+          }
+          console.log("GREEN ADVERSARIAL_RECOVERY_JOURNAL");
+          `);
+          fs.writeFileSync('diagnostic-adversarial-journal.mjs',s);
+          NODE
+          node diagnostic-adversarial-journal.mjs
