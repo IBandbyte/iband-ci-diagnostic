@@ -833,3 +833,48 @@ jobs:
           fs.writeFileSync('diagnostic-adoption-interference.mjs',s);
           NODE
           node diagnostic-adoption-interference.mjs
+      - name: Independent tab interference during adoption
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-adoption-interference.mjs','utf8');
+          const a='console.log(\'GREEN ADOPTION_CONVERSATION_COMPLETENESS\');';
+          if(s.split(a).length!==2)throw Error('Unexpected adoption completion anchor');
+          s=s.replace('await browser.newPage()','await (await browser.newContext()).newPage()');
+          s=s.replace(a,a+`
+          const other=await page.context().newPage();
+          await other.goto(page.url());
+          await page.evaluate(()=>localStorage.setItem("diagnostic-adoption-only",JSON.stringify({projects:[],conversations:[],journey:{}})));
+          await other.evaluate(async()=>{
+            const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+            window.legacy=createMemory({storageKey:"diagnostic-adoption-only",requireSharedWriteAuthority:false});
+          });
+          await page.exposeFunction("attemptOtherWriter",()=>other.evaluate(()=>{
+            try{return {result:window.legacy.rememberConversation({creatorMessage:"Other tab interference",relatedProjectIds:["film-a"]})};}
+            catch(e){return {error:String(e)};}
+          }));
+          const cross=await page.evaluate(async()=>{
+            const {commitMovieMentorRecoveryWithLock}=await import('/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js');
+            const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+            const projectId="film-a",key="diagnostic-adoption-only";
+            const recovered=projectRecoveredCreatorWorkspace({projectId,state:{projectId,revision:9,creatorStateGeneration:9,projectJourney:{projectId,currentStageId:"story",currentTaskId:"outline"},memoryContext:{conversations:[{projectId,role:"creator",content:"A moonlit harbour"}]},creatorConfirmedContext:[{key:"project",value:{id:projectId,creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]}});
+            const baseline=localStorage.getItem(key);
+            let outcome,unchanged=false,commits=0;
+            const allowed=await commitMovieMentorRecoveryWithLock({projectId,recovered,locks:navigator.locks,readLocalState:()=>JSON.parse(localStorage.getItem(key)),commit:state=>{commits++;localStorage.setItem(key,JSON.stringify(state));},beforeCommit:async()=>{outcome=await window.attemptOtherWriter();unchanged=baseline===localStorage.getItem(key);}});
+            return {allowed,outcome,unchanged,commits,state:JSON.parse(localStorage.getItem(key))};
+          });
+          console.log("CROSS_TAB_ADOPTION_INTERFERENCE",JSON.stringify(cross));
+          assert.ok(cross.outcome?.error);
+          assert.equal(cross.unchanged,true);
+          assert.equal(cross.allowed.allowed,true);
+          assert.equal(cross.commits,1);
+          assert.equal(cross.state.conversations.length,1);
+          assert.equal(cross.state.conversations[0].creatorMessage,"A moonlit harbour");
+          await other.close();
+          console.log("GREEN CROSS_TAB_ADOPTION_INTERFERENCE_DENIAL");
+          `);
+          fs.writeFileSync('diagnostic-cross-tab-adoption.mjs',s);
+          NODE
+          node diagnostic-cross-tab-adoption.mjs
