@@ -977,3 +977,45 @@ jobs:
           fs.writeFileSync('diagnostic-malformed-reconstruction.mjs',s);
           NODE
           node diagnostic-malformed-reconstruction.mjs
+      - name: Quarantine interruption and fresh runtime retry baseline
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-malformed-reconstruction.mjs','utf8');
+          const a='console.log("GREEN MALFORMED_CACHE_QUARANTINE_RECONSTRUCTION_RELOAD");';
+          if(s.split(a).length!==2)throw Error("Unexpected reconstruction completion anchor");
+          s=s.replace(a,a+`
+          const interrupted=await page.evaluate(async()=>{
+            const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+            const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+            const projectId="film-a",key="diagnostic-adoption-only";
+            const recovered=projectRecoveredCreatorWorkspace({projectId,state:{projectId,revision:9,creatorStateGeneration:9,projectJourney:{projectId,currentStageId:"story",currentTaskId:"outline"},memoryContext:{conversations:[{projectId,role:"creator",content:"A moonlit harbour"}]},creatorConfirmedContext:[{key:"project",value:{id:projectId,creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]}});
+            localStorage.removeItem(key+".quarantine");
+            localStorage.setItem(key,"{interrupted");
+            let injections=0;
+            const storage={getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{if(k===key){injections++;throw Error("Injected interruption before restored write");}localStorage.setItem(k,v);}};
+            const verdict=await reconstructMalformedCache({projectId,recovered,storage,key,locks:navigator.locks});
+            return {verdict,injections,raw:localStorage.getItem(key),backup:localStorage.getItem(key+".quarantine"),recovered};
+          });
+          assert.equal(interrupted.verdict.allowed,false);
+          assert.equal(interrupted.injections,1);
+          assert.equal(interrupted.raw,"{interrupted");
+          assert.equal(interrupted.backup,interrupted.raw);
+          await page.reload();
+          const retry=await page.evaluate(async recovered=>{
+            const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+            const key="diagnostic-adoption-only";
+            const verdict=await reconstructMalformedCache({projectId:"film-a",recovered,storage:localStorage,key,locks:navigator.locks});
+            return {verdict,raw:localStorage.getItem(key),backup:localStorage.getItem(key+".quarantine")};
+          },interrupted.recovered);
+          console.log("QUARANTINE_INTERRUPTION_RETRY",JSON.stringify({interrupted,retry}));
+          assert.equal(retry.backup,interrupted.backup);
+          assert.equal(retry.verdict.allowed,true,"Fresh runtime must resume recovery after quarantine-only interruption");
+          assert.equal(JSON.parse(retry.raw).conversations[0].creatorMessage,"A moonlit harbour");
+          console.log("GREEN QUARANTINE_INTERRUPTION_RETRY");
+          `);
+          fs.writeFileSync('diagnostic-quarantine-interruption.mjs',s);
+          NODE
+          node diagnostic-quarantine-interruption.mjs
