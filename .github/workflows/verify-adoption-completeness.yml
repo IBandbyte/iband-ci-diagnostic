@@ -1035,3 +1035,33 @@ jobs:
           fs.writeFileSync(p,s);
           NODE
           node diagnostic-quarantine-interruption.mjs
+      - name: Quarantine retry transaction identity negative control
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-quarantine-interruption.mjs','utf8');
+          const a='console.log("GREEN QUARANTINE_INTERRUPTION_RETRY");';
+          if(s.split(a).length!==2)throw Error("Unexpected retry anchor");
+          s=s.replace(a,a+`
+          const identity=await page.evaluate(async original=>{
+            const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+            const key="diagnostic-identity-boundary";
+            localStorage.setItem(key,"{interrupted");
+            const storage={getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{if(k===key)throw Error("Injected interruption");localStorage.setItem(k,v);}};
+            const first=await reconstructMalformedCache({projectId:"film-a",recovered:original,storage,key,locks:navigator.locks});
+            const changed={...original,revision:10,creatorStateGeneration:10,conversationMessages:[{projectId:"film-a",role:"creator",content:"Different recovery snapshot"}]};
+            const retry=await reconstructMalformedCache({projectId:"film-a",recovered:changed,storage:localStorage,key,locks:navigator.locks});
+            return {first,retry,raw:localStorage.getItem(key),backup:localStorage.getItem(key+".quarantine")};
+          },interrupted.recovered);
+          console.log("QUARANTINE_TRANSACTION_IDENTITY",JSON.stringify(identity));
+          assert.equal(identity.first.allowed,false);
+          assert.equal(identity.backup,"{interrupted");
+          assert.equal(identity.retry.allowed,false,"Different recovery transaction must not inherit interrupted quarantine");
+          assert.equal(identity.raw,"{interrupted");
+          console.log("GREEN QUARANTINE_TRANSACTION_IDENTITY");
+          `);
+          fs.writeFileSync('diagnostic-quarantine-identity.mjs',s);
+          NODE
+          node diagnostic-quarantine-identity.mjs
