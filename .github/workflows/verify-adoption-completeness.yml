@@ -1019,3 +1019,19 @@ jobs:
           fs.writeFileSync('diagnostic-quarantine-interruption.mjs',s);
           NODE
           node diagnostic-quarantine-interruption.mjs
+      - name: Exact quarantine match resumable reconstruction candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='if(storage.getItem(key)!==raw||storage.getItem(quarantine)!==null)throw Error("Cache or quarantine changed");';
+          const b='storage.setItem(quarantine,raw);';
+          if(s.split(a).length!==2||s.split(b).length!==2)throw Error("Unexpected quarantine anchors");
+          s=s.replace(a,'const prior=storage.getItem(quarantine);\n      if(storage.getItem(key)!==raw||(prior!==null&&prior!==raw))throw Error("Cache or quarantine changed");');
+          s=s.replace(b,'if(prior===null)storage.setItem(quarantine,raw);');
+          fs.writeFileSync(p,s);
+          NODE
+          node diagnostic-quarantine-interruption.mjs
