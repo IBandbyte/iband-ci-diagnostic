@@ -233,6 +233,42 @@ jobs:
             }finally{if(browser)await browser.close();await vite.close();}
           }
           BROWSER
+          node --input-type=module <<'PATCH'
+          import fs from 'node:fs';
+          const core='../frontend/src/components/studio/mentor/CreatorMemoryCore.js';
+          const p='../frontend/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js';
+          let s=fs.readFileSync(core,'utf8');
+          const start=s.indexOf('function containsSensitiveSecret('),end=s.indexOf('/**',start);
+          if(start<0||end<0)throw Error('Secret policy anchor missing');
+          s=s.slice(0,start)+`function containsSensitiveSecret(...values) {
+            const seen=new Set();
+            const visit=value=>{
+              if(detectSensitiveSecret(value).detected)return true;
+              if(!value||typeof value!=="object"||seen.has(value))return false;
+              seen.add(value);
+              return Object.entries(value).some(([key,item])=>((typeof item==="string"||typeof item==="number")&&detectSensitiveSecret(key+": "+item).detected)||visit(item));
+            };
+            return values.some(visit);
+          }
+          `+s.slice(end)+'\nexport { containsSensitiveSecret };\n';
+          fs.writeFileSync(core,s);
+          s=fs.readFileSync(p,'utf8');
+          const anchor='next.projects=[clone(recovered.project)];';
+          if(s.split(anchor).length!==2)throw Error('Adoption anchor missing');
+          s='import {containsSensitiveSecret} from "./CreatorMemoryCore.js";\n'+s.replace(anchor,anchor+`
+           const records=recovered.conversationMessages;
+           if(!Array.isArray(records))return deny("invalid-recovered-conversation");
+           if(records.some(m=>m&&[m.projectId,m.relatedProjectId,m.metadata?.projectId,m.metadata?.relatedProjectId].some(id=>id!==undefined&&id!==null&&id!==projectId)))return deny("conflicting-recovered-project-identity");
+           if(containsSensitiveSecret(records))return deny("sensitive-recovered-conversation");
+           const canonical=m=>m&&m.type==="conversation"&&typeof m.id==="string"&&m.id.trim()&&m.metadata?.projectId===projectId&&Array.isArray(m.relatedProjectIds)&&m.relatedProjectIds.length===1&&m.relatedProjectIds[0]===projectId&&typeof m.creatorMessage==="string"&&typeof m.mentorResponse==="string"&&(m.creatorMessage.trim()||m.mentorResponse.trim())&&m.lifecycleStatus==="active";
+           const legacy=m=>m&&m.type===undefined&&m.projectId===projectId&&["creator","mentor"].includes(m.role)&&typeof m.content==="string"&&m.content.trim()&&(!Object.prototype.hasOwnProperty.call(m,"relatedProjectIds")||(Array.isArray(m.relatedProjectIds)&&m.relatedProjectIds.length===1&&m.relatedProjectIds[0]===projectId));
+           if(records.some(m=>!canonical(m)&&!legacy(m)))return deny("invalid-recovered-conversation");
+           const converted=records.map((m,i)=>canonical(m)?clone(m):({id:"recovered-"+projectId+"-"+recovered.revision+"-"+i,type:"conversation",lifecycleStatus:"active",summary:"",creatorMessage:m.role==="creator"?m.content:"",mentorResponse:m.role==="mentor"?m.content:"",relatedProjectIds:[projectId],relatedIdeaIds:[],strategies:[],memorableMoments:[],metadata:{projectId,recoveredRevision:recovered.revision},createdAt:null,updatedAt:null}));
+           if(new Set(converted.map(m=>m.id)).size!==converted.length)return deny("duplicate-recovered-conversation");
+           next.conversations=converted;
+          `);
+          fs.writeFileSync(p,s);
+          PATCH
           export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_cross_repo?replicaSet=rs0'
           export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
           node scripts/diagnostic-cross-repo-transport.mjs
