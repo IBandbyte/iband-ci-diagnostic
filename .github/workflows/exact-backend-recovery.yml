@@ -203,6 +203,29 @@ jobs:
                 await region.getByText('Saved stage: story; task: outline',{exact:false}).waitFor();
                 await region.getByText('Saved revision: 1. This is a read-only preview; editing is not enabled.',{exact:true}).waitFor();
                 console.log('GREEN SERVER_AUTHORITATIVE_FRESH_BROWSER_AFTER_SIGKILL');
+                const adoption=await restored.evaluate(async pid=>{
+                  const {recoverMovieMentorCreatorState}=await import('/src/components/studio/mentor/MovieMentorDurableStateSync.js');
+                  const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+                  const {commitMovieMentorRecoveryWithLock}=await import('/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js');
+                  const state=await recoverMovieMentorCreatorState({projectId:pid,getAuthToken:async()=>window.__isolatedToken});
+                  const recovered=projectRecoveredCreatorWorkspace({projectId:pid,state});
+                  const key='diagnostic-connected-adoption';
+                  const readLocalState=()=>JSON.parse(localStorage.getItem(key)||'{"projects":[],"conversations":[],"journey":{}}');
+                  const verdict=await commitMovieMentorRecoveryWithLock({projectId:pid,recovered,readLocalState,commit:next=>localStorage.setItem(key,JSON.stringify(next)),locks:navigator.locks});
+                  return {verdict,expected:recovered.conversationMessages,stored:readLocalState()};
+                },projectId);
+                await restored.reload();
+                const resumed=await restored.evaluate(async()=>{
+                  const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                  const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+                  const runtime=createRuntime({memory:createMemory({storageKey:'diagnostic-connected-adoption'})});
+                  return runtime.getResumeSnapshot();
+                });
+                console.log('CONNECTED_SERVER_ADOPTION_BASELINE',JSON.stringify({adoption,resumed}));
+                assert.equal(adoption.verdict.allowed,true);
+                assert.ok(resumed.conversationMessages.some(message=>message.text==='A moonlit harbour'),'Recovered server conversation must survive local adoption and fresh runtime');
+                console.log('GREEN CONNECTED_SERVER_ADOPTION_RELOAD');
+
                 await fresh.close();
               }finally{if(child){const done=once(child,'exit');process.kill(-child.pid,'SIGKILL');await done;}fs.rmSync(profile,{recursive:true,force:true});
               }
