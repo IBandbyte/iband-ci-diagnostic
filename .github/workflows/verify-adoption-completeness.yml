@@ -1198,3 +1198,74 @@ jobs:
           fs.writeFileSync('diagnostic-interruption-boundaries.mjs',s);
           NODE
           node diagnostic-interruption-boundaries.mjs
+      - name: Actual Chromium SIGKILL persistent profile recovery
+        if: failure()
+        working-directory: frontend
+        run: |
+          cat > diagnostic-process-recovery.mjs <<'NODE'
+          import {chromium} from 'playwright';
+          import {createServer} from 'vite';
+          import {spawn} from 'node:child_process';
+          import {mkdtemp,rm} from 'node:fs/promises';
+          import {tmpdir} from 'node:os';
+          import {join} from 'node:path';
+          import assert from 'node:assert/strict';
+          import {once} from 'node:events';
+          const profile=await mkdtemp(join(tmpdir(),'mentor-crash-'));
+          const vite=await createServer({server:{host:'127.0.0.1',port:4189,strictPort:true}});
+          let child,browser;
+          async function launch(){
+            child=spawn(chromium.executablePath(),['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=19229','--user-data-dir='+profile,'about:blank'],{stdio:'ignore',detached:true});
+            for(let i=0;i<100;i++){
+              try{const response=await fetch('http://127.0.0.1:19229/json/version');if(response.ok){browser=await chromium.connectOverCDP('http://127.0.0.1:19229');return browser.contexts()[0];}}catch{}
+              await new Promise(r=>setTimeout(r,100));
+            }
+            throw Error('Chromium CDP unavailable');
+          }
+          async function kill(){
+            const exited=once(child,'exit');
+            process.kill(-child.pid,'SIGKILL');
+            const [code,signal]=await exited;
+            assert.equal(signal,'SIGKILL');
+            console.log('CHROMIUM_TERMINATED',JSON.stringify({pid:child.pid,code,signal}));
+            child=null;browser=null;
+          }
+          try{
+            await vite.listen();
+            const context=await launch();
+            const page=await context.newPage();
+            await page.goto('http://127.0.0.1:4189/');
+            const fixture=await page.evaluate(async()=>{
+              const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+              return projectRecoveredCreatorWorkspace({projectId:"film-a",state:{projectId:"film-a",revision:9,creatorStateGeneration:9,projectJourney:{projectId:"film-a",currentStageId:"story",currentTaskId:"outline"},memoryContext:{conversations:[{projectId:"film-a",role:"creator",content:"A moonlit harbour"}]},creatorConfirmedContext:[{key:"project",value:{id:"film-a",creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]}});
+            });
+            await page.evaluate(async recovered=>{
+              const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+              const key='diagnostic-process-crash';
+              localStorage.setItem(key,'{crashed');
+              window.__recoveryBoundary=false;
+              const storage={getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{localStorage.setItem(k,v);if(k===key+'.quarantine'){window.__recoveryBoundary=true;throw Error('Stop before primary write');}}};
+              await reconstructMalformedCache({projectId:'film-a',recovered,storage,key,locks:navigator.locks});
+            },fixture);
+            const before=await page.evaluate(()=>({raw:localStorage.getItem('diagnostic-process-crash'),backup:localStorage.getItem('diagnostic-process-crash.quarantine'),journal:localStorage.getItem('diagnostic-process-crash.recovery-journal'),boundary:window.__recoveryBoundary}));
+            assert.equal(before.boundary,true);assert.equal(before.raw,'{crashed');assert.equal(before.backup,before.raw);assert.ok(before.journal);
+            await new Promise(r=>setTimeout(r,1500));
+            const originalPid=child.pid;
+            await kill();
+            const fresh=await launch();
+            assert.notEqual(child.pid,originalPid);
+            const next=await fresh.newPage();
+            await next.goto('http://127.0.0.1:4189/');
+            const after=await next.evaluate(async recovered=>{
+              const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+              const key='diagnostic-process-crash';
+              const rawBefore=localStorage.getItem(key),backup=localStorage.getItem(key+'.quarantine'),journal=localStorage.getItem(key+'.recovery-journal');
+              const verdict=await reconstructMalformedCache({projectId:'film-a',recovered,storage:localStorage,key,locks:navigator.locks});
+              return {rawBefore,backup,journal,verdict,raw:localStorage.getItem(key)};
+            },fixture);
+            console.log('PHYSICAL_PROCESS_RECOVERY',JSON.stringify({before,after,originalPid,freshPid:child.pid}));
+            assert.equal(after.rawBefore,before.raw);assert.equal(after.backup,before.backup);assert.equal(after.journal,before.journal);assert.equal(after.verdict.allowed,true);assert.equal(JSON.parse(after.raw).conversations[0].creatorMessage,'A moonlit harbour');
+            console.log('GREEN CHROMIUM_SIGKILL_PROFILE_RECOVERY');
+          }finally{if(child)await kill();await vite.close();await rm(profile,{recursive:true,force:true});}
+          NODE
+          node diagnostic-process-recovery.mjs
