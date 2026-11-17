@@ -226,6 +226,31 @@ jobs:
                 assert.equal(adoption.verdict.allowed,true);
                 assert.ok(resumed.conversationMessages.some(message=>message.text==='A moonlit harbour'),'Recovered server conversation must survive local adoption and fresh runtime');
                 console.log('GREEN CONNECTED_SERVER_ADOPTION_RELOAD');
+                const continuation=await restored.evaluate(async pid=>{
+                  const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                  const key='diagnostic-connected-adoption';
+                  const memory=createMemory({storageKey:key,requireSharedWriteAuthority:true});
+                  const before=JSON.parse(localStorage.getItem(key));
+                  const args={locks:navigator.locks,projectId:pid,creatorTurnId:'connected-continuation-1',conversation:{creatorMessage:'Add a storm',mentorResponse:'Start with the lighthouse',relatedProjectIds:[pid]},handoff:{content:'Continue the harbour story'}};
+                  const first=await memory.settleConversationWithSharedAuthority(args);
+                  const bytes=localStorage.getItem(key);
+                  const replay=await memory.settleConversationWithSharedAuthority(args);
+                  return {first,replay,before,after:JSON.parse(bytes),replayUnchanged:bytes===localStorage.getItem(key)};
+                },projectId);
+                await restored.reload();
+                const extended=await restored.evaluate(async()=>{
+                  const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                  const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+                  return createRuntime({memory:createMemory({storageKey:'diagnostic-connected-adoption',requireSharedWriteAuthority:true})}).getResumeSnapshot();
+                });
+                console.log('CONNECTED_CONTINUATION_RESULT',JSON.stringify({continuation,extended}));
+                assert.equal(continuation.before.conversations.length,1);
+                assert.equal(continuation.after.conversations.length,2);
+                assert.deepEqual(continuation.after.conversations[0],continuation.before.conversations[0]);
+                assert.equal(continuation.replayUnchanged,true);
+                assert.deepEqual(extended.conversationMessages.map(m=>m.text),['A moonlit harbour','Add a storm','Start with the lighthouse']);
+                console.log('GREEN CONNECTED_CONTINUATION_REPLAY_RELOAD');
+
 
                 await fresh.close();
               }finally{if(child){const done=once(child,'exit');process.kill(-child.pid,'SIGKILL');await done;}fs.rmSync(profile,{recursive:true,force:true});
