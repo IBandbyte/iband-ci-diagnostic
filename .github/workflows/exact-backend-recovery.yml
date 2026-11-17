@@ -153,6 +153,18 @@ jobs:
           assert.equal(await operations.countDocuments({projectId:saved.projectId}),2);
           assert.equal((await ownerships.findOne({projectId:saved.projectId})).creatorStateFenceEpoch,2);
           console.log("GREEN CONNECTED_DURABLE_REVISION_UPDATE_REPLAY");
+          const secondApp=express();
+          secondApp.use("/api/movie-mentor",createMovieMentorCreatorStateRecoveryExpressRouter({authentication,ownershipAuthority:createMovieMentorProjectOwnershipAuthority(),readCreatorState:readAuthoritativeTurnSource}));
+          const secondServer=createServer(secondApp);secondServer.listen(0,"127.0.0.1");await once(secondServer,"listening");
+          try{
+           const {runRevisionTwoCourt}=await import("../../frontend/diagnostic-browser-court.mjs");
+           await runRevisionTwoCourt({port:secondServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),expected:memoryContext.conversations});
+           assert.deepEqual(await states.findOne({projectId:saved.projectId}),updated);
+           assert.equal(await operations.countDocuments({projectId:saved.projectId}),2);
+           assert.equal((await ownerships.findOne({projectId:saved.projectId})).creatorStateFenceEpoch,2);
+           console.log("GREEN CONNECTED_REVISION_TWO_FRESH_BROWSER");
+          }finally{await new Promise(resolve=>secondServer.close(resolve));}
+
           `));
           NODE
           cat > ../frontend/diagnostic-browser-court.mjs <<'BROWSER'
@@ -280,6 +292,43 @@ jobs:
                 return continuation.after;
               }finally{if(child){const done=once(child,'exit');process.kill(-child.pid,'SIGKILL');await done;}fs.rmSync(profile,{recursive:true,force:true});
               }
+            }finally{if(browser)await browser.close();await vite.close();}
+          }
+          export async function runRevisionTwoCourt({port,projectId,ownerToken,expected}){
+            const root=fileURLToPath(new URL('.',import.meta.url));
+            const vite=await createServer({root,server:{host:'127.0.0.1',port:4188,strictPort:true,proxy:{'/api/movie-mentor':{target:'http://127.0.0.1:'+port}}}});
+            let browser;
+            try{
+              await vite.listen();browser=await chromium.launch({headless:true});
+              const context=await browser.newContext();
+              await context.addInitScript(t=>{window.__isolatedToken=t;window.__initialStorageLength=localStorage.length;},ownerToken);
+              const page=await context.newPage();
+              await page.goto('http://127.0.0.1:4188/diagnostic-recovery.html');
+              assert.equal(await page.evaluate(()=>window.__initialStorageLength),0);
+              const recovered=await page.evaluate(async pid=>{
+                const {recoverMovieMentorCreatorState}=await import('/src/components/studio/mentor/MovieMentorDurableStateSync.js');
+                const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+                const {commitMovieMentorRecoveryWithLock}=await import('/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js');
+                const state=await recoverMovieMentorCreatorState({projectId:pid,getAuthToken:async()=>window.__isolatedToken});
+                const view=projectRecoveredCreatorWorkspace({projectId:pid,state});
+                const key='diagnostic-revision-two';
+                const readLocalState=()=>JSON.parse(localStorage.getItem(key)||'{"projects":[],"conversations":[],"journey":{}}');
+                const verdict=await commitMovieMentorRecoveryWithLock({projectId:pid,recovered:view,readLocalState,commit:next=>localStorage.setItem(key,JSON.stringify(next)),locks:navigator.locks});
+                return {revision:state.revision,generation:state.creatorStateGeneration,records:state.memoryContext.conversations,verdict,stored:readLocalState()};
+              },projectId);
+              console.log('REVISION_TWO_RECOVERY_RESULT',JSON.stringify(recovered));
+              assert.equal(recovered.revision,2);assert.equal(recovered.generation,2);
+              assert.deepEqual(recovered.records,expected);assert.equal(recovered.verdict.allowed,true);
+              assert.deepEqual(recovered.stored.conversations,expected);
+              await page.reload();
+              const resumed=await page.evaluate(async()=>{
+                const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+                return createRuntime({memory:createMemory({storageKey:'diagnostic-revision-two',requireSharedWriteAuthority:true})}).getResumeSnapshot();
+              });
+              console.log('REVISION_TWO_RESUME_RESULT',JSON.stringify(resumed));
+              assert.deepEqual(resumed.conversationMessages.map(m=>m.text),['A moonlit harbour','Add a storm','Start with the lighthouse']);
+              await context.close();
             }finally{if(browser)await browser.close();await vite.close();}
           }
           BROWSER
