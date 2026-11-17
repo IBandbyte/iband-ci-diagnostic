@@ -103,7 +103,7 @@ jobs:
           const source=fs.readFileSync(path,'utf8');
           const anchor='  const owner=await get(sign("owner"));';
           if(source.split(anchor).length!==2) throw Error('Unexpected examination anchor');
-          fs.writeFileSync('scripts/diagnostic-cross-repo-transport.mjs',source.replace('memoryContext:{note:"isolated real transition "+id}', 'memoryContext:{note:"isolated real transition "+id,conversations:[{projectId:project(id),role:"creator",content:"A moonlit harbour"}]},projectJourney:{projectId:project(id),currentStageId:"story",currentTaskId:"outline"},creatorConfirmedContext:[{key:"project",value:{id:project(id),title:"Harbour Film",creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]').replace(anchor,`  const {recoverMovieMentorCreatorState}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
+          fs.writeFileSync('scripts/diagnostic-cross-repo-transport.mjs',source.replace('let server;','let server,extendedMemory;').replace('memoryContext:{note:"isolated real transition "+id}', 'memoryContext:{note:"isolated real transition "+id,conversations:[{projectId:project(id),role:"creator",content:"A moonlit harbour"}]},projectJourney:{projectId:project(id),currentStageId:"story",currentTaskId:"outline"},creatorConfirmedContext:[{key:"project",value:{id:project(id),title:"Harbour Film",creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]').replace(anchor,`  const {recoverMovieMentorCreatorState}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
           const realFetch=(path,options)=>{assert.ok(path.startsWith("/api/movie-mentor/state/recovery/"));return fetch("http://127.0.0.1:"+recoveryServer.address().port+path,options);};
           const recover=token=>recoverMovieMentorCreatorState({projectId:saved.projectId,getAuthToken:async()=>token,fetchImpl:realFetch});
           const actual=await recover(sign("owner"));
@@ -126,10 +126,31 @@ jobs:
           assert.throws(()=>projectRecoveredCreatorWorkspace({projectId:"other-project",state:actual}),{code:"MOVIE_MENTOR_RECOVERY_PROJECTION_INVALID"});
           console.log("GREEN CROSS_REPO_DURABLE_WORKSPACE_PROJECTION");
           const {runBrowserCourt}=await import("../../frontend/diagnostic-browser-court.mjs");
-          await runBrowserCourt({port:recoveryServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),intruderToken:sign("intruder")});
+          extendedMemory=await runBrowserCourt({port:recoveryServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),intruderToken:sign("intruder")});
           assert.deepEqual(await states.findOne({projectId:saved.projectId}),saved);
           console.log("GREEN CROSS_REPO_BROWSER_READONLY_RECOVERY");
-          `+anchor));
+          `+anchor).replace('readAuthoritativeTurnSource:async()=>{const e=Error("No creator state");e.code="MOVIE_MENTOR_CREATOR_STATE_NOT_FOUND";throw e;}','readAuthoritativeTurnSource').replace(' process.stdout.write(output);',` process.stdout.write(output);
+          const {projectMemoryContext}=await import("../../frontend/src/components/studio/mentor/MovieMentorDurableStateSync.js");
+          const memoryContext=projectMemoryContext(extendedMemory,saved.projectId);
+          assert.deepEqual(memoryContext.conversations,extendedMemory.conversations);
+          const payload={projectId:saved.projectId,operationId:"connected-continuation-save",source:"creator-memory",expectedRevision:1,state:{memoryContext}};
+          const send=async body=>{const r=await fetch(base+"/state/sync",{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer isolated-valid"},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
+          const first=await send(payload);
+          console.log("CONNECTED_REVISION_UPDATE",JSON.stringify(first));
+          assert.equal(first.status,200);
+          const updated=await states.findOne({projectId:saved.projectId});
+          assert.equal(updated.revision,2);assert.equal(updated.creatorStateGeneration,2);
+          assert.deepEqual(updated.memoryContext.conversations,extendedMemory.conversations);
+          const replay=await send(payload);
+          assert.equal(replay.status,200);
+          const stale=await send({...payload,operationId:"connected-stale-overwrite",state:{memoryContext:saved.memoryContext}});
+          console.log("CONNECTED_REVISION_REPLAY_STALE",JSON.stringify({replay,stale}));
+          assert.notEqual(stale.status,200);
+          assert.deepEqual(await states.findOne({projectId:saved.projectId}),updated);
+          assert.equal(await operations.countDocuments({projectId:saved.projectId}),2);
+          assert.equal((await ownerships.findOne({projectId:saved.projectId})).creatorStateFenceEpoch,2);
+          console.log("GREEN CONNECTED_DURABLE_REVISION_UPDATE_REPLAY");
+          `));
           NODE
           cat > ../frontend/diagnostic-browser-court.mjs <<'BROWSER'
           import assert from 'node:assert/strict';
@@ -253,6 +274,7 @@ jobs:
 
 
                 await fresh.close();
+                return continuation.after;
               }finally{if(child){const done=once(child,'exit');process.kill(-child.pid,'SIGKILL');await done;}fs.rmSync(profile,{recursive:true,force:true});
               }
             }finally{if(browser)await browser.close();await vite.close();}
