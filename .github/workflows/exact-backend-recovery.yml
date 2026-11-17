@@ -136,6 +136,10 @@ jobs:
           import {chromium} from 'playwright';
           import {createServer} from 'vite';
           import fs from 'node:fs';
+          import {spawn} from 'node:child_process';
+          import {once} from 'node:events';
+          import {tmpdir} from 'node:os';
+          import {join} from 'node:path';
           import {fileURLToPath} from 'node:url';
           export async function runBrowserCourt({port,projectId,ownerToken,intruderToken}){
             const root=fileURLToPath(new URL('.',import.meta.url));
@@ -167,6 +171,40 @@ jobs:
                   assert.equal(await section.getByRole('heading',{name:'Harbour Film'}).count(),0);
                 }
                 await context.close();
+              }
+              const profile=fs.mkdtempSync(join(tmpdir(),'server-recovery-crash-'));
+              let child;
+              try{
+                child=spawn(chromium.executablePath(),['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=19229','--user-data-dir='+profile,'about:blank'],{detached:true,stdio:'ignore'});
+                let connected;
+                for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:19229/json/version')).ok){connected=await chromium.connectOverCDP('http://127.0.0.1:19229');break;}}catch{}await new Promise(r=>setTimeout(r,100));}
+                assert.ok(connected);
+                const crashPage=await connected.contexts()[0].newPage();
+                await crashPage.goto('http://127.0.0.1:4188/diagnostic-recovery.html');
+                await crashPage.evaluate(()=>{localStorage.setItem('diagnostic-crash-cache','{damaged');localStorage.setItem('diagnostic-crash-cache.quarantine','{damaged');localStorage.setItem('diagnostic-crash-cache.recovery-journal','interrupted');});
+                const pid=child.pid,exited=once(child,'exit');
+                process.kill(-pid,'SIGKILL');
+                const [,signal]=await exited;child=null;assert.equal(signal,'SIGKILL');
+                console.log('SERVER_RECOVERY_CRASH_CONFIRMED',JSON.stringify({pid,signal}));
+                await browser.close();
+                browser=await chromium.launch({headless:true});
+                const fresh=await browser.newContext();
+                await fresh.addInitScript(t=>{window.__isolatedToken=t;window.__initialStorageLength=localStorage.length;},ownerToken);
+                const restored=await fresh.newPage();
+                await restored.goto('http://127.0.0.1:4188/diagnostic-recovery.html');
+                assert.equal(await restored.evaluate(()=>window.__initialStorageLength),0);
+                const region=restored.getByRole('region',{name:'Recover an existing Movie Mentor project'});
+                await region.getByRole('textbox',{name:'Existing movie project ID'}).fill(projectId);
+                const response=restored.waitForResponse(r=>r.url().includes('/state/recovery/')&&r.request().method()==='GET');
+                await region.getByRole('button',{name:'Recover movie preview'}).click();
+                assert.equal((await response).status(),200);
+                await region.getByRole('heading',{name:'Harbour Film'}).waitFor();
+                await region.getByText('A moonlit harbour',{exact:true}).waitFor();
+                await region.getByText('Saved stage: story; task: outline',{exact:false}).waitFor();
+                await region.getByText('Saved revision: 1. This is a read-only preview; editing is not enabled.',{exact:true}).waitFor();
+                console.log('GREEN SERVER_AUTHORITATIVE_FRESH_BROWSER_AFTER_SIGKILL');
+                await fresh.close();
+              }finally{if(child){const done=once(child,'exit');process.kill(-child.pid,'SIGKILL');await done;}fs.rmSync(profile,{recursive:true,force:true});
               }
             }finally{if(browser)await browser.close();await vite.close();}
           }
