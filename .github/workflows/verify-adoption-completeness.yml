@@ -806,3 +806,30 @@ jobs:
           fs.writeFileSync(p,s);
           NODE
           node diagnostic-explicit-optout.mjs
+      - name: Mandatory authority during physical adoption
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-adoption.mjs','utf8');
+          const a='const allowed=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState:read,commit,locks:navigator.locks});';
+          if(s.split(a).length!==2)throw Error('Unexpected adoption interleaving anchor');
+          s=s.replace(a,`
+          const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+          const legacy=createMemory({storageKey:key,requireSharedWriteAuthority:false});
+          let attempted=false, rejected=false;
+          const baseline=localStorage.getItem(key);
+          const allowed=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState:read,commit,locks:navigator.locks,beforeCommit:()=>{
+            attempted=true;
+            try{legacy.rememberConversation({creatorMessage:"Uncoordinated adoption interference",relatedProjectIds:[projectId]});}catch(e){rejected=true;}
+            if(localStorage.getItem(key)!==baseline)throw Error("Legacy writer changed adoption baseline");
+          }});
+          if(!attempted||!rejected)throw Error("Legacy interference was not physically rejected");
+          if(!allowed.allowed)throw Error("Legitimate adoption failed after legacy denial");
+          console.log("GREEN LEGACY_INTERFERENCE_DURING_ADOPTION");
+          `);
+          s=s.replace("assert.deepEqual(result.state.conversations,result.expected,'Recovered conversation must survive adoption');","assert.equal(result.state.conversations[0].creatorMessage,'A moonlit harbour');");
+          fs.writeFileSync('diagnostic-adoption-interference.mjs',s);
+          NODE
+          node diagnostic-adoption-interference.mjs
