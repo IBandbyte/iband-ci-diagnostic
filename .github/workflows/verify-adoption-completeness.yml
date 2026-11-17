@@ -1065,3 +1065,38 @@ jobs:
           fs.writeFileSync('diagnostic-quarantine-identity.mjs',s);
           NODE
           node diagnostic-quarantine-identity.mjs
+      - name: Local recovery transaction journal candidate
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p='src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js';
+          let s=fs.readFileSync(p,'utf8');
+          const a='const quarantine=key+".quarantine";';
+          const b='if(prior===null)storage.setItem(quarantine,raw);';
+          if(s.split(a).length!==2||s.split(b).length!==2)throw Error("Unexpected transaction anchors");
+          s=s.replace(a,a+`
+            const journal=key+".recovery-journal";
+            const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
+            const encoded=new TextEncoder().encode(JSON.stringify(canonical({key,projectId,raw,recovered})));
+            const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",encoded)),b=>b.toString(16).padStart(2,"0")).join("");
+            const binding=JSON.stringify({version:1,projectId,revision:recovered.revision,generation:recovered.creatorStateGeneration,digest});
+          `);
+          s=s.replace(b,`
+            const existingJournal=storage.getItem(journal);
+            if(existingJournal!==null&&existingJournal!==binding)throw Error("Recovery transaction mismatch");
+            if(prior!==null&&existingJournal===null)throw Error("Unbound quarantine");
+            if(existingJournal===null)storage.setItem(journal,binding);
+            if(storage.getItem(journal)!==binding||storage.getItem(key)!==raw||storage.getItem(quarantine)!==prior)throw Error("Recovery journal changed");
+            if(prior===null)storage.setItem(quarantine,raw);
+            if(storage.getItem(journal)!==binding)throw Error("Recovery transaction changed");
+          `);
+          fs.writeFileSync(p,s);
+          let test=fs.readFileSync('diagnostic-quarantine-identity.mjs','utf8');
+          const reset='localStorage.removeItem(key+".quarantine");';
+          if(test.split(reset).length!==3)throw Error("Unexpected independent fixture reset count");
+          test=test.replaceAll(reset,reset+'\n localStorage.removeItem(key+".recovery-journal");');
+          fs.writeFileSync('diagnostic-quarantine-journal.mjs',test);
+          NODE
+          node diagnostic-quarantine-journal.mjs
