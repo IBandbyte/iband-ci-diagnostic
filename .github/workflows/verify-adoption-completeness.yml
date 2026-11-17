@@ -1269,3 +1269,57 @@ jobs:
           }finally{if(child)await kill();await vite.close();await rm(profile,{recursive:true,force:true});}
           NODE
           node diagnostic-process-recovery.mjs
+      - name: Independent Chromium storage durability controls
+        if: failure()
+        working-directory: frontend
+        run: |
+          cat > diagnostic-storage-durability.mjs <<'NODE'
+          import {chromium} from 'playwright';
+          import {spawn} from 'node:child_process';
+          import {mkdtemp,rm} from 'node:fs/promises';
+          import {tmpdir} from 'node:os';
+          import {join} from 'node:path';
+          import {once} from 'node:events';
+          import {createServer} from 'node:http';
+          import assert from 'node:assert/strict';
+          const server=createServer((req,res)=>{res.writeHead(200,{'Content-Type':'text/html'});res.end('<html>isolated storage control</html>');});
+          await new Promise(r=>server.listen(4189,'127.0.0.1',r));
+          const results=[];
+          try{
+            for(const scenario of [{name:'graceful',delay:0},{name:'kill-1500',delay:1500},{name:'kill-10000',delay:10000}]){
+              const profile=await mkdtemp(join(tmpdir(),'storage-control-'));
+              let child,browser;
+              async function launch(){
+                child=spawn(chromium.executablePath(),['--headless','--no-sandbox','--disable-dev-shm-usage','--remote-debugging-port=19229','--user-data-dir='+profile,'about:blank'],{stdio:'ignore',detached:true});
+                for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:19229/json/version')).ok){browser=await chromium.connectOverCDP('http://127.0.0.1:19229');return browser.contexts()[0];}}catch{}await new Promise(r=>setTimeout(r,100));}
+                throw Error('CDP unavailable');
+              }
+              async function stop(graceful){
+                const exited=once(child,'exit');
+                if(graceful){const session=await browser.newBrowserCDPSession();await session.send('Browser.close').catch(()=>{});}
+                else process.kill(-child.pid,'SIGKILL');
+                const [code,signal]=await exited;child=null;
+                if(!graceful)assert.equal(signal,'SIGKILL');
+                return {code,signal};
+              }
+              try{
+                const ctx=await launch(),page=await ctx.newPage();
+                await page.goto('http://127.0.0.1:4189/');
+                const before=await page.evaluate(()=>{localStorage.setItem('control','durable-story');return localStorage.getItem('control');});
+                assert.equal(before,'durable-story');
+                await new Promise(r=>setTimeout(r,scenario.delay));
+                const exit=await stop(scenario.name==='graceful');
+                const fresh=await launch(),next=await fresh.newPage();
+                await next.goto('http://127.0.0.1:4189/');
+                const after=await next.evaluate(()=>localStorage.getItem('control'));
+                results.push({scenario:scenario.name,before,after,exit});
+                await stop(true);
+              }finally{if(child)await stop(false);await rm(profile,{recursive:true,force:true});}
+            }
+            console.log('INDEPENDENT_STORAGE_DURABILITY',JSON.stringify(results));
+            assert.equal(results[0].after,'durable-story','Clean shutdown must preserve profile storage');
+            assert.ok(results.slice(1).every(x=>x.after==='durable-story'),'Abrupt shutdown storage survival required');
+            console.log('GREEN INDEPENDENT_STORAGE_DURABILITY');
+          }finally{server.close();}
+          NODE
+          node diagnostic-storage-durability.mjs
