@@ -878,3 +878,34 @@ jobs:
           fs.writeFileSync('diagnostic-cross-tab-adoption.mjs',s);
           NODE
           node diagnostic-cross-tab-adoption.mjs
+      - name: Damaged local cache authoritative reconstruction baseline
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-cross-tab-adoption.mjs','utf8');
+          const a='console.log("GREEN CROSS_TAB_ADOPTION_INTERFERENCE_DENIAL");';
+          if(s.split(a).length!==2)throw Error('Unexpected reconstruction anchor');
+          s=s.replace(a,a+`
+          const outcomes=await page.evaluate(async()=>{
+            const {commitMovieMentorRecoveryWithLock}=await import('/src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js');
+            const {projectRecoveredCreatorWorkspace}=await import('/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js');
+            const projectId="film-a",key="diagnostic-adoption-only";
+            const recovered=projectRecoveredCreatorWorkspace({projectId,state:{projectId,revision:9,creatorStateGeneration:9,projectJourney:{projectId,currentStageId:"story",currentTaskId:"outline"},memoryContext:{conversations:[{projectId,role:"creator",content:"A moonlit harbour"},{projectId,role:"mentor",content:"Start with the lighthouse"},{projectId,role:"creator",content:"Add a storm"}]},creatorConfirmedContext:[{key:"project",value:{id:projectId,creatorType:"video",metadata:{creatorMode:"ai-movie"}}}]}});
+            const results=[];
+            for(const [name,raw] of [["malformed","{broken"],["stale",JSON.stringify({projects:[],conversations:[{projectId,content:"Older local draft"}],journey:{}})]]){
+              localStorage.setItem(key,raw);
+              let commits=0;
+              const verdict=await commitMovieMentorRecoveryWithLock({projectId,recovered,locks:navigator.locks,readLocalState:()=>JSON.parse(localStorage.getItem(key)),commit:state=>{commits++;localStorage.setItem(key,JSON.stringify(state));}});
+              results.push({name,verdict,commits,unchanged:localStorage.getItem(key)===raw});
+            }
+            return results;
+          });
+          console.log("DAMAGED_CACHE_BASELINE",JSON.stringify(outcomes));
+          for(const x of outcomes){assert.equal(x.verdict.allowed,false);assert.equal(x.commits,0);assert.equal(x.unchanged,true);}
+          assert.ok(outcomes.some(x=>x.verdict.allowed),"Existing adoption path cannot reconstruct damaged or populated stale cache without separate authority");
+          `);
+          fs.writeFileSync('diagnostic-damaged-cache.mjs',s);
+          NODE
+          node diagnostic-damaged-cache.mjs
