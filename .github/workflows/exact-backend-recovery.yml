@@ -158,7 +158,7 @@ jobs:
           const secondServer=createServer(secondApp);secondServer.listen(0,"127.0.0.1");await once(secondServer,"listening");
           try{
            const {runRevisionTwoCourt}=await import("../../frontend/diagnostic-browser-court.mjs");
-           await runRevisionTwoCourt({port:secondServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),expected:memoryContext.conversations});
+           await runRevisionTwoCourt({port:secondServer.address().port,projectId:saved.projectId,ownerToken:sign("owner"),expected:memoryContext.conversations,expectedHandoff:memoryContext.sessionHandoffs[0]});
            assert.deepEqual(await states.findOne({projectId:saved.projectId}),updated);
            assert.equal(await operations.countDocuments({projectId:saved.projectId}),2);
            assert.equal((await ownerships.findOne({projectId:saved.projectId})).creatorStateFenceEpoch,2);
@@ -294,7 +294,7 @@ jobs:
               }
             }finally{if(browser)await browser.close();await vite.close();}
           }
-          export async function runRevisionTwoCourt({port,projectId,ownerToken,expected}){
+          export async function runRevisionTwoCourt({port,projectId,ownerToken,expected,expectedHandoff}){
             const root=fileURLToPath(new URL('.',import.meta.url));
             const vite=await createServer({root,server:{host:'127.0.0.1',port:4188,strictPort:true,proxy:{'/api/movie-mentor':{target:'http://127.0.0.1:'+port}}}});
             let browser;
@@ -328,6 +328,9 @@ jobs:
               });
               console.log('REVISION_TWO_RESUME_RESULT',JSON.stringify(resumed));
               assert.deepEqual(resumed.conversationMessages.map(m=>m.text),['A moonlit harbour','Add a storm','Start with the lighthouse']);
+              assert.ok(expectedHandoff,"Server must contain the actual committed handoff");
+              assert.deepEqual(resumed.sessionHandoff,expectedHandoff,"Fresh runtime must preserve the durable session handoff");
+              console.log('GREEN REVISION_TWO_SESSION_HANDOFF_RESTORED');
               await context.close();
             }finally{if(browser)await browser.close();await vite.close();}
           }
