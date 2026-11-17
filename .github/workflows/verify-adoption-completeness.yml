@@ -1153,3 +1153,48 @@ jobs:
           fs.writeFileSync('diagnostic-adversarial-journal.mjs',s);
           NODE
           node diagnostic-adversarial-journal.mjs
+      - name: Recovery journal interruption boundary matrix
+        if: failure()
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let s=fs.readFileSync('diagnostic-adversarial-journal.mjs','utf8');
+          const a='console.log("GREEN ADVERSARIAL_RECOVERY_JOURNAL");';
+          if(s.split(a).length!==2)throw Error("Unexpected boundary anchor");
+          s=s.replace(a,a+`
+          for(const boundary of ["journal","quarantine","reconstruction"]){
+            const before=await page.evaluate(async ({original,boundary})=>{
+              const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+              const key="diagnostic-boundary-"+boundary,raw="{damaged";
+              localStorage.setItem(key,raw);
+              const target=boundary==="journal"?key+".recovery-journal":boundary==="quarantine"?key+".quarantine":key;
+              let injections=0;
+              const storage={getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{localStorage.setItem(k,v);if(k===target){injections++;throw Error("Injected interruption after durable write");}}};
+              const verdict=await reconstructMalformedCache({projectId:"film-a",recovered:original,storage,key,locks:navigator.locks});
+              return {verdict,injections,raw:localStorage.getItem(key),backup:localStorage.getItem(key+".quarantine"),journal:localStorage.getItem(key+".recovery-journal")};
+            },{original:interrupted.recovered,boundary});
+            await page.reload();
+            const after=await page.evaluate(async ({original,boundary})=>{
+              const {reconstructMalformedCache}=await import('/src/components/studio/mentor/DiagnosticMalformedCacheRecovery.js');
+              const key="diagnostic-boundary-"+boundary;
+              const verdict=await reconstructMalformedCache({projectId:"film-a",recovered:original,storage:localStorage,key,locks:navigator.locks});
+              return {verdict,raw:localStorage.getItem(key),backup:localStorage.getItem(key+".quarantine"),journal:localStorage.getItem(key+".recovery-journal")};
+            },{original:interrupted.recovered,boundary});
+            console.log("RECOVERY_INTERRUPTION_BOUNDARY",JSON.stringify({boundary,before,after}));
+            assert.equal(before.injections,1,boundary);
+            assert.equal(before.verdict.allowed,false,boundary);
+            assert.ok(before.journal,boundary);
+            assert.equal(before.backup,boundary==="journal"?null:"{damaged",boundary);
+            assert.equal(after.backup,"{damaged",boundary);
+            assert.equal(after.journal,before.journal,boundary);
+            assert.equal(after.verdict.allowed,boundary!=="reconstruction",boundary);
+            if(boundary==="reconstruction")assert.equal(after.raw,before.raw,boundary);
+            else assert.equal(before.raw,"{damaged",boundary);
+            assert.equal(JSON.parse(after.raw).conversations[0].creatorMessage,"A moonlit harbour",boundary);
+          }
+          console.log("GREEN RECOVERY_INTERRUPTION_BOUNDARY_MATRIX");
+          `);
+          fs.writeFileSync('diagnostic-interruption-boundaries.mjs',s);
+          NODE
+          node diagnostic-interruption-boundaries.mjs
