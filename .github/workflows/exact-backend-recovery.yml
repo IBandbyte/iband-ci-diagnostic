@@ -214,11 +214,12 @@ jobs:
                   const verdict=await commitMovieMentorRecoveryWithLock({projectId:pid,recovered,readLocalState,commit:next=>localStorage.setItem(key,JSON.stringify(next)),locks:navigator.locks});
                   return {verdict,expected:recovered.conversationMessages,stored:readLocalState()};
                 },projectId);
+                console.log('CONNECTED_ADOPTION_COMMIT_RESULT',JSON.stringify(adoption));
                 await restored.reload();
                 const resumed=await restored.evaluate(async()=>{
                   const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
                   const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
-                  const runtime=createRuntime({memory:createMemory({storageKey:'diagnostic-connected-adoption'})});
+                  const runtime=createRuntime({memory:createMemory({storageKey:'diagnostic-connected-adoption',requireSharedWriteAuthority:true})});
                   return runtime.getResumeSnapshot();
                 });
                 console.log('CONNECTED_SERVER_ADOPTION_BASELINE',JSON.stringify({adoption,resumed}));
