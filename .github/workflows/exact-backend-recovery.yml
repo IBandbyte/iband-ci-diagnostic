@@ -394,6 +394,15 @@ jobs:
           const old='String(message?.content || message?.text || "")';
           if(ui.split(old).length!==2)throw Error('Real recovery preview rendering anchor missing');
           ui=ui.replace(old,'[message?.creatorMessage,message?.mentorResponse].filter(value=>typeof value==="string"&&value.trim()).join(" | ") || String(message?.content || message?.text || "")');
+          const recoveryImport='import { projectRecoveredCreatorWorkspace } from "./mentor/MovieMentorRecoveredWorkspaceProjection.js";';
+          if(ui.split(recoveryImport).length!==2)throw Error('UI import anchor missing');
+          ui=ui.replace(recoveryImport,recoveryImport+'\nimport { commitMovieMentorRecoveryWithLock } from "./mentor/MovieMentorRecoveryLockedCommit.js";\nimport { createDefaultMemoryState } from "./mentor/CreatorMemoryCore.js";');
+          const previewState='const [serverRecoveredPreview, setServerRecoveredPreview] = useState(null);';
+          if(ui.split(previewState).length!==2)throw Error('UI state anchor missing');
+          ui=ui.replace(previewState,previewState+'\n  const [adoptionResult,setAdoptionResult]=useState(null);\n  const adoptRecoveredWorkspace=async()=>{\n    setAdoptionResult(null);\n    const recovered=serverRecoveredPreview;\n    const projectId=recoveryProjectId.trim();\n    if(!recovered||!projectId||recovered.project?.id!==projectId){setAdoptionResult("Adoption denied: project mismatch");return;}\n    const key="iband.creator-memory";\n    const readLocalState=()=>{const raw=localStorage.getItem(key);return raw?JSON.parse(raw):createDefaultMemoryState();};\n    const verdict=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState,commit:next=>localStorage.setItem(key,JSON.stringify(next)),locks:navigator.locks});\n    setAdoptionResult(verdict.allowed?"Workspace adopted. Reload to resume your movie.":"Adoption denied: "+verdict.reason);\n  };');
+          const previewEnd='        </div>}\n      </section>';
+          if(ui.split(previewEnd).length!==2)throw Error('UI preview end anchor missing');
+          ui=ui.replace(previewEnd,'          <button type="button" onClick={adoptRecoveredWorkspace}>Adopt recovered workspace</button>\n        </div>}\n        {adoptionResult && <p role="status">{adoptionResult}</p>}\n      </section>');
           fs.writeFileSync(workspace,ui);
           s=fs.readFileSync(p,'utf8');
           const target='next.conversations=converted;';
