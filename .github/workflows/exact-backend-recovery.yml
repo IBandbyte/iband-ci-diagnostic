@@ -341,6 +341,23 @@ jobs:
               const adoptionControls=await adoptButton.count();
               console.log('REAL_UI_ADOPTION_ENTRYPOINT',JSON.stringify({adoptionControls}));
               assert.equal(adoptionControls,1,'Actual creator UI must expose an explicit, gated recovery adoption entrypoint');
+              await adoptButton.click();
+              await region.getByText('Workspace adopted. Reload to resume your movie.',{exact:true}).waitFor({timeout:10000});
+              const adopted=await page.evaluate(()=>JSON.parse(localStorage.getItem('iband.creator-memory')||'null'));
+              assert.ok(adopted,'Adoption must persist canonical local memory');
+              assert.equal(adopted.journey.activeProjectId,projectId);
+              assert.deepEqual(adopted.conversations,expected,'Adoption must persist canonical recovered turns');
+              assert.deepEqual(adopted.sessionHandoffs,[expectedHandoff],'Adoption must persist durable handoff');
+              await page.reload();
+              const adoptedResume=await page.evaluate(async()=>{
+                const {default:createMemory}=await import('/src/components/studio/mentor/CreatorMemory.js');
+                const {default:createRuntime}=await import('/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js');
+                return createRuntime({memory:createMemory({requireSharedWriteAuthority:true})}).getResumeSnapshot();
+              });
+              assert.deepEqual(adoptedResume.conversationMessages.map(m=>m.text),['A moonlit harbour','Add a storm','Start with the lighthouse']);
+              assert.deepEqual(adoptedResume.sessionHandoff,expectedHandoff);
+              console.log('GREEN REAL_UI_EXCLUSIVE_LOCK_ADOPTION_AND_RELOAD');
+
               assert.ok(expectedHandoff,"Server must contain the actual committed handoff");
               assert.deepEqual(resumed.sessionHandoff,expectedHandoff,"Fresh runtime must preserve the durable session handoff");
               console.log('GREEN REVISION_TWO_SESSION_HANDOFF_RESTORED');
