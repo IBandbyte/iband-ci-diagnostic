@@ -433,6 +433,17 @@ jobs:
           fs.writeFileSync(projection,q);
           const workspace='../frontend/src/components/studio/CreatorWorkspace.jsx';
           let ui=fs.readFileSync(workspace,'utf8');
+          // Independent pinned-source integration audit, BEFORE any diagnostic UI overlay.
+          const sourceAudit={
+            originalHasAdoptionButton:ui.includes('Adopt recovered workspace'),
+            originalUsesLockedAdoption:ui.includes('commitMovieMentorRecoveryWithLock'),
+            originalHasRecoveryPreview:ui.includes('Recover movie preview'),
+            originalImportsRecoveryProjection:ui.includes('projectRecoveredCreatorWorkspace')
+          };
+          console.log('ORIGINAL_FRONTEND_ADOPTION_SOURCE_AUDIT',JSON.stringify(sourceAudit));
+          if(!sourceAudit.originalHasRecoveryPreview||!sourceAudit.originalImportsRecoveryProjection)throw Error('Pinned frontend recovery source unexpectedly changed');
+          if(sourceAudit.originalHasAdoptionButton!==sourceAudit.originalUsesLockedAdoption)throw Error('Pinned frontend has inconsistent adoption integration; manual review required');
+          console.log(sourceAudit.originalHasAdoptionButton?'ORIGINAL_FRONTEND_ADOPTION_INTEGRATED_SOURCE':'ORIGINAL_FRONTEND_ADOPTION_GAP_CONFIRMED_DIAGNOSTIC_OVERLAY_REQUIRED');
           const old='String(message?.content || message?.text || "")';
           if(ui.split(old).length!==2)throw Error('Real recovery preview rendering anchor missing');
           ui=ui.replace(old,'[message?.creatorMessage,message?.mentorResponse].filter(value=>typeof value==="string"&&value.trim()).join(" | ") || String(message?.content || message?.text || "")');
