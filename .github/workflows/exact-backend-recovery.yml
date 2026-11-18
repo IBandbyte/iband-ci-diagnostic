@@ -342,6 +342,7 @@ jobs:
               console.log('REAL_UI_ADOPTION_ENTRYPOINT',JSON.stringify({adoptionControls}));
               assert.equal(adoptionControls,1,'Actual creator UI must expose an explicit, gated recovery adoption entrypoint');
               await adoptButton.click();
+              await page.waitForTimeout(1500);
               const adoptionObserved=await region.locator('[role="status"]').allInnerTexts();
               console.log('REAL_UI_ADOPTION_OBSERVED',JSON.stringify({adoptionObserved,storage:await page.evaluate(()=>({keys:Object.keys(localStorage),canonical:localStorage.getItem('iband.creator-memory')?.slice(0,500)}))}));
               await region.getByText('Workspace adopted. Reload to resume your movie.',{exact:true}).waitFor({timeout:10000});
