@@ -328,6 +328,15 @@ jobs:
               });
               console.log('REVISION_TWO_RESUME_RESULT',JSON.stringify(resumed));
               assert.deepEqual(resumed.conversationMessages.map(m=>m.text),['A moonlit harbour','Add a storm','Start with the lighthouse']);
+              const region=page.getByRole('region',{name:'Recover an existing Movie Mentor project'});
+              await region.getByRole('textbox',{name:'Existing movie project ID'}).fill(projectId);
+              const response=page.waitForResponse(r=>r.url().includes('/state/recovery/')&&r.request().method()==='GET');
+              await region.getByRole('button',{name:'Recover movie preview'}).click();
+              assert.equal((await response).status(),200);
+              await region.getByText('Saved revision: 2. This is a read-only preview; editing is not enabled.',{exact:true}).waitFor();
+              const visible=await region.locator('ol').innerText();
+              console.log('REVISION_TWO_REAL_UI_PREVIEW',JSON.stringify({visible}));
+              assert.ok(visible.includes('A moonlit harbour')&&visible.includes('Add a storm')&&visible.includes('Start with the lighthouse'),'Real recovered UI must render both canonical creator and mentor turns');
               assert.ok(expectedHandoff,"Server must contain the actual committed handoff");
               assert.deepEqual(resumed.sessionHandoff,expectedHandoff,"Fresh runtime must preserve the durable session handoff");
               console.log('GREEN REVISION_TWO_SESSION_HANDOFF_RESTORED');
