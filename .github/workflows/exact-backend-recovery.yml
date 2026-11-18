@@ -370,6 +370,25 @@ jobs:
            next.conversations=converted;
           `);
           fs.writeFileSync(p,s);
+          const projection='../frontend/src/components/studio/mentor/MovieMentorRecoveredWorkspaceProjection.js';
+          let q=fs.readFileSync(projection,'utf8');
+          const source='conversationMessages:clone(conversations),revision:state.revision';
+          if(q.split(source).length!==2)throw Error('Projection return anchor missing');
+          q=q.replace(source,'conversationMessages:clone(conversations),sessionHandoffs:clone(Array.isArray(context.sessionHandoffs)?context.sessionHandoffs:[]),revision:state.revision');
+          fs.writeFileSync(projection,q);
+          s=fs.readFileSync(p,'utf8');
+          const target='next.conversations=converted;';
+          if(s.split(target).length!==2)throw Error('Session handoff adoption anchor missing');
+          s=s.replace(target,target+`
+           const handoffs=recovered.sessionHandoffs;
+           if(!Array.isArray(handoffs))return deny("invalid-recovered-handoffs");
+           if(handoffs.some(h=>!h||h.type!=="session-handoff"||h.projectId!==projectId||typeof h.id!=="string"||!h.id.trim()||typeof h.content!=="string"||!h.content.trim()||h.scope!=="project"||!["active","superseded"].includes(h.status)))return deny("invalid-recovered-handoff");
+           if(containsSensitiveSecret(handoffs))return deny("sensitive-recovered-handoff");
+           if(new Set(handoffs.map(h=>h.id)).size!==handoffs.length)return deny("duplicate-recovered-handoff");
+           next.sessionHandoffs=clone(handoffs);
+          `);
+          fs.writeFileSync(p,s);
+          fs.writeFileSync(p,s);
           PATCH
           node --input-type=module <<'FENCE'
           import fs from 'node:fs';
