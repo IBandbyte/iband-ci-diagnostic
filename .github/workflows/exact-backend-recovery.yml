@@ -385,6 +385,12 @@ jobs:
           if(q.split(source).length!==2)throw Error('Projection return anchor missing');
           q=q.replace(source,'conversationMessages:clone(conversations),sessionHandoffs:clone(Array.isArray(context.sessionHandoffs)?context.sessionHandoffs:[]),revision:state.revision');
           fs.writeFileSync(projection,q);
+          const workspace='../frontend/src/components/studio/CreatorWorkspace.jsx';
+          let ui=fs.readFileSync(workspace,'utf8');
+          const old='String(message?.content || message?.text || "")';
+          if(ui.split(old).length!==2)throw Error('Real recovery preview rendering anchor missing');
+          ui=ui.replace(old,'[message?.creatorMessage,message?.mentorResponse].filter(value=>typeof value==="string"&&value.trim()).join(" | ") || String(message?.content || message?.text || "")');
+          fs.writeFileSync(workspace,ui);
           s=fs.readFileSync(p,'utf8');
           const target='next.conversations=converted;';
           if(s.split(target).length!==2)throw Error('Session handoff adoption anchor missing');
