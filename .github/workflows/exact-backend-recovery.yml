@@ -361,6 +361,28 @@ jobs:
               assert.deepEqual(adoptedResume.sessionHandoff,expectedHandoff);
               console.log('GREEN REAL_UI_EXCLUSIVE_LOCK_ADOPTION_AND_RELOAD');
 
+              // Negative control: existing creator work must never be replaced by adoption.
+              const existingWork=JSON.stringify({
+                projects:[{id:'existing-local-film',title:'Keep this film'}],
+                conversations:[{id:'existing-local-turn',creatorMessage:'Do not overwrite'}],
+                journey:{activeProjectId:'existing-local-film'},
+                sessionHandoffs:[{id:'existing-local-handoff',content:'Keep this handoff'}]
+              });
+              await page.evaluate(value=>localStorage.setItem('iband.creator-memory',value),existingWork);
+              await page.reload();
+              const protectedRegion=page.getByRole('region',{name:'Recover an existing Movie Mentor project'});
+              await protectedRegion.getByRole('textbox',{name:'Existing movie project ID'}).fill(projectId);
+              const protectedResponse=page.waitForResponse(r=>r.url().includes('/state/recovery/')&&r.request().method()==='GET');
+              await protectedRegion.getByRole('button',{name:'Recover movie preview'}).click();
+              assert.equal((await protectedResponse).status(),200);
+              await protectedRegion.getByRole('button',{name:'Adopt recovered workspace'}).click();
+              await protectedRegion.getByText('Adoption denied: local-work-must-be-preserved',{exact:true}).waitFor({timeout:10000});
+              const preserved=await page.evaluate(()=>localStorage.getItem('iband.creator-memory'));
+              assert.equal(preserved,existingWork,'Denied adoption must preserve every existing local byte');
+              await page.reload();
+              assert.equal(await page.evaluate(()=>localStorage.getItem('iband.creator-memory')),existingWork,'Denied adoption must preserve local work after reload');
+              console.log('GREEN REAL_UI_EXISTING_WORK_DENIED_AND_PRESERVED');
+
               assert.ok(expectedHandoff,"Server must contain the actual committed handoff");
               assert.deepEqual(resumed.sessionHandoff,expectedHandoff,"Fresh runtime must preserve the durable session handoff");
               console.log('GREEN REVISION_TWO_SESSION_HANDOFF_RESTORED');
