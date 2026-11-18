@@ -337,6 +337,10 @@ jobs:
               const visible=await region.locator('ol').innerText();
               console.log('REVISION_TWO_REAL_UI_PREVIEW',JSON.stringify({visible}));
               assert.ok(visible.includes('A moonlit harbour')&&visible.includes('Add a storm')&&visible.includes('Start with the lighthouse'),'Real recovered UI must render both canonical creator and mentor turns');
+              const adoptButton=region.getByRole('button',{name:'Adopt recovered workspace'});
+              const adoptionControls=await adoptButton.count();
+              console.log('REAL_UI_ADOPTION_ENTRYPOINT',JSON.stringify({adoptionControls}));
+              assert.equal(adoptionControls,1,'Actual creator UI must expose an explicit, gated recovery adoption entrypoint');
               assert.ok(expectedHandoff,"Server must contain the actual committed handoff");
               assert.deepEqual(resumed.sessionHandoff,expectedHandoff,"Fresh runtime must preserve the durable session handoff");
               console.log('GREEN REVISION_TWO_SESSION_HANDOFF_RESTORED');
