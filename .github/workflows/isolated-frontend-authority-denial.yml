@@ -1,0 +1,28 @@
+name: Isolated Frontend Authority Denial Evidence
+on:
+  push:
+    branches:
+      - verify/frontend-mongo-authority-integration-01
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-pinned-original-denial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact pinned original frontend
+        shell: bash
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = a1996da41989fd3a1d5ccc99f4d425c468a292f8
+      - name: Observe exact denial while retaining original failing assertion
+        run: node scripts/verify-frontend-authority-denial.mjs frontend
+      - name: Explicitly hold unproven integration
+        run: |
+          echo "FRONTEND_MONGO_INTEGRATION=UNCERTIFIED"
+          echo "ORIGINAL_FRONTEND_CONTINUITY=RED_PRESERVED"
+          echo "NO_PRODUCTION_WRITE=TRUE"
