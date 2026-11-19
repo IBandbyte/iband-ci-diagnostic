@@ -539,6 +539,35 @@ jobs:
           echo "ORIGINAL_FRONTEND_BASELINE_SHA=$(git -C baseline rev-parse HEAD)"
           cd baseline
           node scripts/verify-movie-mentor-conversation-continuity.mjs
+      - name: Independent positive read-only conversation restoration and provenance denial court
+        working-directory: candidate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/verify-movie-mentor-conversation-continuity.mjs')
+          s=p.read_text()
+          marker='// The Studio ensure operation intentionally resumes an existing active movie.'
+          assert s.count(marker)==1, 'Expected unique baseline transition marker'
+          prefix=s.split(marker)[0]
+          extra='''
+          const beforeDeniedWrite = JSON.stringify(memoryB.getState());
+          const denied = await memoryB.replaceStateWithSharedAuthority({
+            locks,
+            transform: state => ({ ...state, journey: { ...(state.journey || {}), activeProjectId: null } }),
+          });
+          assert.equal(denied.acquired, false, "Fresh facade must not gain unwitnessed publication authority");
+          assert.equal(denied.reason, "publication-outbox-provenance-unverified");
+          assert.equal(JSON.stringify(memoryB.getState()), beforeDeniedWrite, "Denied operation must not mutate facade");
+          const afterDeniedResume = runtimeB.getResumeSnapshot();
+          assert.equal(afterDeniedResume.projectId, project.id);
+          assert.deepEqual(afterDeniedResume.conversationMessages, resumed.conversationMessages);
+          assert.equal(afterDeniedResume.sessionHandoff.projectId, project.id);
+          console.log("GREEN READ_ONLY_RESTART_CONVERSATION_AND_HANDOFF_RESTORED");
+          console.log("GREEN UNWITNESSED_PUBLICATION_AUTHORITY_DENIED_WITHOUT_MUTATION");
+          '''
+          Path('scripts/verify-independent-readonly-restoration.mjs').write_text(prefix + extra)
+          PY
+          node scripts/verify-independent-readonly-restoration.mjs
       - name: Conversation continuity regression on pinned candidate
         working-directory: candidate
         run: npm run verify:movie-mentor-conversation-continuity
