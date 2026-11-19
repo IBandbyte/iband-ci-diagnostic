@@ -482,3 +482,40 @@ jobs:
           export MONGO_URI='mongodb://127.0.0.1:27017/movie_mentor_cross_repo?replicaSet=rs0'
           export MOVIE_MENTOR_ISOLATED_MONGO_URI="$MONGO_URI"
           node scripts/diagnostic-cross-repo-transport.mjs
+
+  pinned-frontend-recovery-adoption:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch and prove pinned isolated frontend candidate
+        run: |
+          git init candidate
+          git -C candidate remote add origin https://github.com/IBandbyte/Iband-frontend-first.git
+          git -C candidate fetch --depth=1 origin 03e678856f60a5ddb2b60b3e17d82ae31aa1a801
+          git -C candidate checkout --detach FETCH_HEAD
+          test "$(git -C candidate rev-parse HEAD)" = "03e678856f60a5ddb2b60b3e17d82ae31aa1a801"
+          git -C candidate remote remove origin
+          echo "PINNED_FRONTEND_CANDIDATE_SHA=03e678856f60a5ddb2b60b3e17d82ae31aa1a801"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Independent adoption and denial verification on pinned candidate
+        working-directory: candidate
+        run: node scripts/verify-isolated-recovery-adoption.mjs
+      - name: Install pinned frontend candidate dependencies
+        working-directory: candidate
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Build pinned frontend candidate
+        working-directory: candidate
+        run: npm run build
+      - name: Creator-facing regression on pinned candidate
+        working-directory: candidate
+        run: npm run verify:movie-mentor-creator-facing
+      - name: Studio cockpit regression on pinned candidate
+        working-directory: candidate
+        run: npm run verify:movie-mentor-studio-cockpit
+      - name: Conversation continuity regression on pinned candidate
+        working-directory: candidate
+        run: npm run verify:movie-mentor-conversation-continuity
