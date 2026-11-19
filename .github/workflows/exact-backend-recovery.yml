@@ -610,6 +610,32 @@ jobs:
           console.log("SCOPE synthetic storage adapter; NOT strict CreatorMemory publication-outbox authority");
           EOF
           node scripts/verify-independent-recovery-next-scene.mjs
+      - name: Real Creator Memory live-writer and restart provenance boundary court
+        working-directory: candidate
+        run: |
+          cat > scripts/verify-real-creator-memory-writer-boundary.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import createCreatorMemory,{createMemoryStorageAdapter} from "../src/components/studio/mentor/CreatorMemory.js";
+          const storage=createMemoryStorageAdapter();
+          const locks={request:async(_name,_options,callback)=>callback({name:"exclusive",mode:"exclusive"})};
+          const live=createCreatorMemory({storageAdapter:storage,requireSharedWriteAuthority:true});
+          const first=await live.replaceStateWithSharedAuthority({locks,transform:state=>({...state,journey:{...(state.journey||{}),writerCourtStep:1}})});
+          assert.equal(first.acquired,true,JSON.stringify(first));
+          const second=await live.replaceStateWithSharedAuthority({locks,transform:state=>({...state,journey:{...(state.journey||{}),writerCourtStep:2}})});
+          assert.equal(second.acquired,true,JSON.stringify(second));
+          assert.equal(live.readPersistedState().journey.writerCourtStep,2);
+          console.log("GREEN REAL_CREATOR_MEMORY_LIVE_WITNESSED_SEQUENTIAL_WRITES");
+          const restarted=createCreatorMemory({storageAdapter:storage,requireSharedWriteAuthority:true});
+          assert.equal(restarted.readPersistedState().journey.writerCourtStep,2);
+          const before=JSON.stringify(restarted.readPersistedState());
+          const denied=await restarted.replaceStateWithSharedAuthority({locks,transform:state=>({...state,journey:{...(state.journey||{}),writerCourtStep:3}})});
+          assert.equal(denied.acquired,false);
+          assert.equal(denied.reason,"publication-outbox-provenance-unverified");
+          assert.equal(JSON.stringify(restarted.readPersistedState()),before);
+          console.log("GREEN REAL_CREATOR_MEMORY_RESTART_DENIAL_PRESERVES_DURABLE_STATE");
+          console.log("SCOPE no independent durable restart-writer credential exists; positive restart write remains uncertified");
+          EOF
+          node scripts/verify-real-creator-memory-writer-boundary.mjs
       - name: Conversation continuity regression on pinned candidate
         working-directory: candidate
         run: npm run verify:movie-mentor-conversation-continuity
