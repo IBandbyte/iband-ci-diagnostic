@@ -101,6 +101,16 @@ jobs:
           done
           echo "Mongo replica-set PRIMARY did not become ready" >&2
           exit 1
+      - name: Physical isolated Mongo publication checkpoint authority court
+        working-directory: backend
+        run: |
+          git init ../publication-diagnostic
+          git -C ../publication-diagnostic remote add origin https://github.com/IBandbyte/iband-ci-diagnostic.git
+          git -C ../publication-diagnostic fetch --depth=1 origin 72f8938da17e1af6aa65de54919c009c5ce14feb
+          git -C ../publication-diagnostic checkout --detach FETCH_HEAD
+          test "$(git -C ../publication-diagnostic rev-parse HEAD)" = "72f8938da17e1af6aa65de54919c009c5ce14feb"
+          cp ../publication-diagnostic/scripts/verify-physical-publication-checkpoint.mjs ./verify-physical-publication-checkpoint.mjs
+          node ./verify-physical-publication-checkpoint.mjs
       - name: Physical signed HTTP and durable Mongo creator recovery court
         working-directory: backend
         run: node scripts/verify-movie-mentor-same-record-http-mongo-recovery.mjs
