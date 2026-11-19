@@ -633,6 +633,22 @@ jobs:
           assert.equal(denied.reason,"publication-outbox-provenance-unverified");
           assert.equal(JSON.stringify(restarted.readPersistedState()),before);
           console.log("GREEN REAL_CREATOR_MEMORY_RESTART_DENIAL_PRESERVES_DURABLE_STATE");
+          // An attacker can rewrite local JSON, including its fingerprint fields.
+          // Even a structurally valid forged ledger must not become trusted authority.
+          const key="movie-mentor-creator-memory";
+          const raw=storage.getItem(key);
+          assert.ok(raw,"Expected a persisted Creator Memory blob");
+          const forged=JSON.parse(raw);
+          assert.ok(Array.isArray(forged.durablePublicationOutbox) && forged.durablePublicationOutbox.length>0);
+          forged.journey={...(forged.journey||{}),writerCourtStep:999};
+          storage.setItem(key,JSON.stringify(forged));
+          const forgedRestart=createCreatorMemory({storageAdapter:storage,requireSharedWriteAuthority:true});
+          const forgedBefore=storage.getItem(key);
+          const forgedAttempt=await forgedRestart.replaceStateWithSharedAuthority({locks,transform:state=>({...state,journey:{...(state.journey||{}),writerCourtStep:1000}})});
+          assert.equal(forgedAttempt.acquired,false,JSON.stringify(forgedAttempt));
+          assert.equal(forgedAttempt.reason,"publication-outbox-provenance-unverified");
+          assert.equal(storage.getItem(key),forgedBefore,"Forged restart attempt must not write durable bytes");
+          console.log("GREEN REAL_CREATOR_MEMORY_FORGED_LOCAL_STATE_DENIED_WITHOUT_MUTATION");
           console.log("SCOPE no independent durable restart-writer credential exists; positive restart write remains uncertified");
           EOF
           node scripts/verify-real-creator-memory-writer-boundary.mjs
