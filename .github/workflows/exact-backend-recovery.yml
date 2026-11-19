@@ -516,6 +516,29 @@ jobs:
       - name: Studio cockpit regression on pinned candidate
         working-directory: candidate
         run: npm run verify:movie-mentor-studio-cockpit
+      - name: Diagnose unchanged conversation continuity rejection without weakening assertion
+        working-directory: candidate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/verify-movie-mentor-conversation-continuity.mjs')
+          s=p.read_text()
+          anchor='assert.equal(cleared.acquired, true);'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'console.log("DIAGNOSTIC_SHARED_AUTHORITY_REJECTION", JSON.stringify(cleared));\n'+anchor)
+          p.write_text(s)
+          PY
+      - name: Compare conversation continuity against original pinned frontend baseline
+        continue-on-error: true
+        run: |
+          git init baseline
+          git -C baseline remote add origin https://github.com/IBandbyte/Iband-frontend-first.git
+          git -C baseline fetch --depth=1 origin a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git -C baseline checkout --detach FETCH_HEAD
+          test "$(git -C baseline rev-parse HEAD)" = "a1996da41989fd3a1d5ccc99f4d425c468a292f8"
+          echo "ORIGINAL_FRONTEND_BASELINE_SHA=$(git -C baseline rev-parse HEAD)"
+          cd baseline
+          node scripts/verify-movie-mentor-conversation-continuity.mjs
       - name: Conversation continuity regression on pinned candidate
         working-directory: candidate
         run: npm run verify:movie-mentor-conversation-continuity
