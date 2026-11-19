@@ -568,6 +568,48 @@ jobs:
           Path('scripts/verify-independent-readonly-restoration.mjs').write_text(prefix + extra)
           PY
           node scripts/verify-independent-readonly-restoration.mjs
+      - name: Independent recovery adoption durable restart and next-scene court
+        working-directory: candidate
+        run: |
+          cat > scripts/verify-independent-recovery-next-scene.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import {commitMovieMentorRecoveryWithLock} from "../src/components/studio/mentor/MovieMentorRecoveryLockedCommit.js";
+          import {withMovieMentorMemoryWriteAuthority} from "../src/components/studio/mentor/MovieMentorMemoryWriteAuthority.js";
+          const projectId="restart-film";
+          const project={id:projectId,title:"Restart film",creatorType:"video",metadata:{creatorMode:"ai-movie"}};
+          const recovered={project,revision:3,creatorStateGeneration:3,conversationMessages:[{id:"scene-one",creatorMessage:"First scene"}],sessionHandoffs:[{id:"handoff-one",type:"session-handoff",projectId,content:"Continue film",scope:"project",status:"active"}]};
+          const locks={request:async(_name,_options,callback)=>callback({name:"exclusive",mode:"exclusive"})};
+          let durable=JSON.stringify({projects:[],conversations:[],sessionHandoffs:[],journey:{activeProjectId:null}});
+          let writes=0;
+          const read=()=>JSON.parse(durable);
+          const commit=async state=>{writes++;durable=JSON.stringify(state)};
+          const adopted=await commitMovieMentorRecoveryWithLock({projectId,recovered,readLocalState:read,commit,locks});
+          assert.equal(adopted.allowed,true,JSON.stringify(adopted));
+          assert.equal(writes,1);
+          const restarted=read();
+          assert.equal(restarted.projects[0].id,projectId);
+          assert.equal(restarted.conversations[0].id,"scene-one");
+          assert.equal(restarted.sessionHandoffs[0].id,"handoff-one");
+          console.log("GREEN ADOPTION_SURVIVES_SERIALIZED_RESTART");
+          const continued=await withMovieMentorMemoryWriteAuthority({locks,operation:async()=>{
+            const current=read();
+            assert.equal(current.journey.activeProjectId,projectId);
+            assert.equal(current.conversations.length,1);
+            current.conversations.push({id:"scene-two",creatorMessage:"Next scene"});
+            await commit(current);
+            return {saved:true};
+          }});
+          assert.equal(continued.acquired,true);
+          assert.equal(continued.value.saved,true);
+          assert.equal(writes,2);
+          const secondRestart=read();
+          assert.deepEqual(secondRestart.conversations.map(m=>m.id),["scene-one","scene-two"]);
+          assert.equal(secondRestart.sessionHandoffs[0].id,"handoff-one");
+          assert.equal(secondRestart.projects[0].id,projectId);
+          console.log("GREEN NEXT_SCENE_LOCKED_WRITE_SURVIVES_SECOND_SERIALIZED_RESTART");
+          console.log("SCOPE synthetic storage adapter; NOT strict CreatorMemory publication-outbox authority");
+          EOF
+          node scripts/verify-independent-recovery-next-scene.mjs
       - name: Conversation continuity regression on pinned candidate
         working-directory: candidate
         run: npm run verify:movie-mentor-conversation-continuity
