@@ -6,6 +6,24 @@ on:
   workflow_dispatch:
 permissions: {}
 jobs:
+  publication-authority-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Fetch exact diagnostic model source
+        run: |
+          git init diagnostic
+          git -C diagnostic remote add origin https://github.com/IBandbyte/iband-ci-diagnostic.git
+          git -C diagnostic fetch --depth=1 origin 0305fdd8088dcc8de8ca29c915533035518276d8
+          git -C diagnostic checkout --detach FETCH_HEAD
+          test "$(git -C diagnostic rev-parse HEAD)" = "0305fdd8088dcc8de8ca29c915533035518276d8"
+          git -C diagnostic remote remove origin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify isolated reference model only (NOT physical publication authority)
+        working-directory: diagnostic
+        run: node scripts/verify-publication-authority-model.mjs
   physical-recovery:
     runs-on: ubuntu-latest
     timeout-minutes: 12
