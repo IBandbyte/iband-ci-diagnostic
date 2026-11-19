@@ -635,7 +635,7 @@ jobs:
           console.log("GREEN REAL_CREATOR_MEMORY_RESTART_DENIAL_PRESERVES_DURABLE_STATE");
           // An attacker can rewrite local JSON, including its fingerprint fields.
           // Even a structurally valid forged ledger must not become trusted authority.
-          const key="movie-mentor-creator-memory";
+          const key="iband.creator-memory";
           const raw=storage.getItem(key);
           assert.ok(raw,"Expected a persisted Creator Memory blob");
           const forged=JSON.parse(raw);
