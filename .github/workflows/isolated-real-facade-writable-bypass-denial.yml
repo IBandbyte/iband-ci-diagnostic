@@ -25,4 +25,5 @@ jobs:
           git -C frontend checkout --detach FETCH_HEAD
           test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
       - name: Verify strict facade denies grant-to-local publication witness
-        run: node scripts/verify-real-facade-writable-bypass-denial.mjs
+        working-directory: scripts
+        run: node ./verify-real-facade-writable-bypass-denial.mjs
