@@ -44,3 +44,8 @@ No merge, deploy, application main changes or production database writes. Every 
 - Exact head `23cee1626ef3e3ea0dc41064ba5065c17c354c88`; run `44828125819`, job `136605843435`: **nine physical GREEN markers**, including `HTTP_POST_COMMIT_SOCKET_LOSS_DURABLE_EFFECT` and `HTTP_FRESH_PROCESS_SAME_OPERATION_REPLAY_NO_DUPLICATE`.
 - Separate earlier run `44828111185`, job `136605797724` is RED at revocation assertion; retain as historical failure, do not borrow a verdict from it.
 - The nine GREEN certify isolated server HTTP behaviour, **not** real browser/UI integration, original frontend continuity, production readiness, or deployment.
+
+## Pinned frontend boundary through browser-shaped HTTP — physical certification (2026-11-20)
+- Exact head `3d3df34b5b8cca75f059a60035ba2adc9334ef8f`; run `44828941827`, job `136608610404`.
+- Ten physical GREEN markers, including `PINNED_FRONTEND_BOUNDARY_BROWSER_HTTP_EDIT_AND_READBACK`. The pinned real frontend module executed through the isolated browser-shaped authenticated HTTP adapter and durable server readback; earlier HTTP courts also passed.
+- This is a Node-based physical integration court of the real pinned module, **not** a browser UI call-site implementation or certification. Original frontend RED and real UI integration remain HELD. No merge, deploy, production DB write, or application main edit.
