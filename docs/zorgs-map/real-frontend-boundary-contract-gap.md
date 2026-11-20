@@ -26,3 +26,9 @@ VERIFIER FIRST. Phase 01 HELD. Application main untouched. No production write, 
 - Five physical GREEN markers: server admission; first pinned-boundary edit; second pinned-boundary edit; fresh-process historical/current receipt readback; intruder/forged-fence denial.
 - Job explicitly printed `HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION`.
 - This certifies the isolated compatibility court only, NOT browser transport, real UI integration, revoked-ownership denial, or the original frontend RED.
+
+## Revoked ownership physical certification — 2026-11-20
+- Exact head `754c06d53fd329a165a7cb2019de73845740b9d9`; run `44823455159`, job `136589944274`.
+- Six physical GREEN markers: admission, first edit, second edit, historical/current readback, intruder/forged denial, revoked owner historical/current read/replay/edit denial.
+- Revocation assertions require no revision advance or extra edit receipt after denial.
+- The job explicitly reports `HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION`; no browser transport or actual UI integration certified.
