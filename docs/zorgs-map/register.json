@@ -309,6 +309,15 @@
       "sha": "171e1881e86cb5638215efa90f00e1fd79f7e82c",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44792464179/job/136483409553",
       "description": "Exact-head CI GREEN: remote nonempty snapshot not adopted; synchronous strict-facade bypass denied; server grant cannot promote publication witness. Negative safety court only, positive writable adoption outstanding."
+    },
+    {
+      "id": "positive-server-owned-edit-restart",
+      "parent": "writable-adoption-integration",
+      "label": "Server-owned positive edit and fresh-process replay",
+      "status": "green",
+      "sha": "89b9cad9f37b7a541aa4df262c58ae82318ec026",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44795474941/job/136493770424",
+      "description": "Exact-head physical Mongo GREEN: server admission, positive authorized edit, fresh-process idempotent replay, intruder and stale-revision denial. Two-writer positive contention and real-facade writable restoration remain outstanding."
     }
   ],
   "edges": [
@@ -468,6 +477,13 @@
       "to": "writable-adoption-integration",
       "status": "blue",
       "description": "Negative safety court certified; positive editable restoration and original frontend RED unresolved."
+    },
+    {
+      "id": "positive-server-edit-to-real-facade",
+      "from": "positive-server-owned-edit-restart",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Positive server edit/replay certified in isolation; competing edit contention and real facade editable restoration not certified."
     }
   ],
   "lastMapUpdate": "2026-11-20",
