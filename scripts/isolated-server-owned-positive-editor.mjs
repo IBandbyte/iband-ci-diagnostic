@@ -39,7 +39,7 @@ export function createServerOwnedEditor({gate,db,client,publicKey}){
     const next={...state.state,content};
     const updated=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$set:{revision:expectedRevision+1,state:next}},{session});
     if(updated.matchedCount!==1)throw Error('concurrent-editor-conflict');
-    await edits.insertOne({projectId,operationId,admissionOperationId:operationId.split(':')[0],fence,ownerId:state.ownerId,ownershipRevision:state.ownershipRevision,expectedRevision,revision:expectedRevision+1,contentDigest:digest(content),stateDigest:digest(next),outboxDigest:digest(next.durablePublicationOutbox)},{session});
+    await edits.insertOne({projectId,operationId,admissionOperationId:operationId.split(':')[0],fence,ownerId:state.ownerId,ownershipRevision:state.ownershipRevision,expectedRevision,revision:expectedRevision+1,contentDigest:digest(content),committedState:structuredClone(next),stateDigest:digest(next),outboxDigest:digest(next.durablePublicationOutbox)},{session});
     result={ok:true,replay:false,revision:expectedRevision+1};
    },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
   }catch(e){if(!e?.hasErrorLabel?.('TransientTransactionError')&&e?.code!==112&&e?.code!==11000)throw e}
