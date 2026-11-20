@@ -16,7 +16,16 @@ export function createServerOwnedEditor({gate,db,client,publicKey}){
     if(prior){
      const canonical=await gate.states.findOne({projectId,ownerId,revoked:false,activeWriterFence:fence,activeAdoptionGrant:{$exists:true}},{session});
      const admission=await gate.admissions.findOne({projectId,ownerId,operationId:admissionOperationId,fence,status:'admitted'},{session});
-     if(canonical&&admission&&prior.ownerId===ownerId&&prior.ownershipRevision===canonical.ownershipRevision&&prior.fence===fence&&prior.expectedRevision===expectedRevision&&prior.contentDigest===digest(content)&&prior.admissionOperationId===admissionOperationId&&canonical.revision===prior.revision&&digest(canonical.state)===prior.stateDigest)result={ok:true,replay:true,revision:prior.revision};
+     if(canonical&&admission&&prior.ownerId===ownerId&&prior.ownershipRevision===canonical.ownershipRevision&&admission.ownershipRevision===canonical.ownershipRevision&&canonical.activeAdoptionGrant===admission.grantId&&prior.fence===fence&&prior.expectedRevision===expectedRevision&&prior.revision===expectedRevision+1&&prior.contentDigest===digest(content)&&prior.admissionOperationId===admissionOperationId&&canonical.revision>=prior.revision){
+      // A historical receipt is idempotent acknowledgement, NOT authority to
+      // rewrite the current state. Verify an unbroken receipt chain from the
+      // requested operation through the current canonical revision.
+      const chain=await edits.find({projectId,fence,ownerId,ownershipRevision:canonical.ownershipRevision,revision:{$gte:prior.revision,$lte:canonical.revision}},{session}).sort({revision:1}).toArray();
+      const contiguous=chain.length===canonical.revision-prior.revision+1&&chain.every((entry,index)=>entry.revision===prior.revision+index&&entry.expectedRevision===entry.revision-1&&entry.admissionOperationId===admissionOperationId);
+      const latest=chain.at(-1);
+      if(contiguous&&chain[0].operationId===operationId&&latest.stateDigest===digest(canonical.state)&&latest.outboxDigest===digest(canonical.state.durablePublicationOutbox))
+       result={ok:true,replay:true,revision:prior.revision};
+     }
      return;
     }
     const admission=await gate.admissions.findOne({projectId,ownerId,operationId:admissionOperationId,fence,status:'admitted'},{session});
