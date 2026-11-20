@@ -28,3 +28,9 @@ Status: DESIGN ONLY / PHASE 01 HELD. This document is not a physical GREEN or au
 
 ## Guardrails
 No merge, deploy, application main changes or production database writes. Every court must run on isolated resources and report exact-head physical logs. Prior six GREEN markers are not transferable to the new HTTP/UI court.
+
+## Isolated HTTP physical certification — 2026-11-20
+- Exact head: `5b1a1b557aca517456212093b20120d7a6b2ceef`; GitHub Actions run `44826134644`, job `136599076720`.
+- Six physical GREEN markers: server admission, first HTTP edit/readback, second HTTP edit/readback, fresh-process historical/latest replay, intruder/invalid JWT/tampered replay denial, revoked owner read/edit denial.
+- The job explicitly prints `HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION`.
+- HTTP socket-loss recovery, concurrent HTTP writers, actual browser UI wiring and unchanged original frontend RED remain unverified. No production deployment or application main changes.
