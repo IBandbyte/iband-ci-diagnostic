@@ -16,7 +16,7 @@ const readJwt=(token,publicKey,{issuer,audience})=>{
   return c.sub;
  }catch{return null;}
 };
-function createIsolatedMongoCreatorAuthority({db,publicKey,issuer,audience}){
+function createIsolatedMongoCreatorAuthority({db,client,publicKey,issuer,audience}){
  const states=db.collection('creator_authority_states'),operations=db.collection('creator_authority_operations');
  const principal=token=>readJwt(token,publicKey,{issuer,audience});
  async function commit({authenticatedSession,projectId,operationId,expectedRevision,proposedState}){
@@ -24,7 +24,7 @@ function createIsolatedMongoCreatorAuthority({db,publicKey,issuer,audience}){
   if(!sub||!projectId||!operationId||!Number.isSafeInteger(expectedRevision)||expectedRevision<0||
      !proposedState||typeof proposedState!=='object'||Array.isArray(proposedState))return {status:'denied'};
   const requestDigest=digest({projectId,operationId,expectedRevision,proposedState});
-  const session=db.client.startSession();
+  const session=client.startSession();
   try{
    return await session.withTransaction(async()=>{
     const current=await states.findOne({projectId},{session});
