@@ -243,6 +243,15 @@
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629",
       "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629/job/136459657348",
       "description": "Exact-head isolated physical Mongo GREEN: atomic nonempty outbox+server ledger; fresh-process grant consumption and replay denial; intruder and ledger tampering denial. Not real facade editable adoption."
+    },
+    {
+      "id": "real-facade-nonempty-readonly",
+      "parent": "creator-memory",
+      "label": "Real facade nonempty provenance read-only bridge",
+      "status": "green",
+      "sha": "3d5c6f2e037b2687b49f1342c31c3ee664ed4e1f",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680/job/136462091572",
+      "description": "Physical three-process Mongo GREEN: real CreatorMemory.js read-only continuation with server-owned nonempty publication history; fresh-process replay; intruder, forgery, tamper denials. No local adoption."
     }
   ],
   "edges": [
@@ -343,6 +352,14 @@
       "status": "blue",
       "description": "Isolated authority positive proven; actual CreatorMemory editable adoption integration and original continuity acceptance remain unverified.",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629/job/136459657348"
+    },
+    {
+      "id": "real-facade-readonly-provenance-edge",
+      "from": "positive-server-provenance",
+      "to": "real-facade-nonempty-readonly",
+      "status": "green",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680/job/136462091572",
+      "description": "Scoped real facade read-only bridge proven. Writable adoption and original continuity RED remain outstanding."
     }
   ],
   "lastMapUpdate": "2026-11-20",
