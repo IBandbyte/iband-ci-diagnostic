@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "title": "Zorg's Map — Movie Mentor Engineering Navigation",
+  "asOf": "2026-11-20",
+  "phase": "01 HELD",
+  "policy": {
+    "verifierFirst": true,
+    "mainBranchesUntouched": true,
+    "productionWrites": false,
+    "deploy": false,
+    "merge": false,
+    "greenRequiresExactHead": true,
+    "originalRedsPreserved": true
+  },
+  "statuses": {
+    "green": "Scope-specific physical exact-head GREEN",
+    "red": "Demonstrated failure or unresolved original acceptance RED",
+    "amber": "In progress or pending evidence",
+    "blue": "Connection requires independent verification",
+    "purple": "Future scope",
+    "gray": "Unaudited or insufficient evidence"
+  },
+  "nodes": [
+    {
+      "id": "movie-mentor",
+      "parent": null,
+      "label": "Movie Mentor",
+      "status": "red",
+      "description": "Master overview. Original frontend continuity RED blocks Phase 01."
+    },
+    {
+      "id": "frontend",
+      "parent": "movie-mentor",
+      "label": "Frontend",
+      "status": "red",
+      "description": "Creator continuity RED preserved; isolated read-only projection verified."
+    },
+    {
+      "id": "creator-memory",
+      "parent": "frontend",
+      "label": "Creator Memory",
+      "status": "red",
+      "description": "Real facade physical continuation tested; editable adoption outstanding."
+    },
+    {
+      "id": "read-only",
+      "parent": "creator-memory",
+      "label": "Server read-only projection",
+      "status": "green",
+      "sha": "344d98ff0c7e075a7e6530c8871670ad8044d220",
+      "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676",
+      "description": "Isolated continuation contract GREEN. No writable local adoption."
+    },
+    {
+      "id": "editable",
+      "parent": "creator-memory",
+      "label": "Editable local restoration",
+      "status": "red",
+      "description": "Original continuity RED preserved; no bypass of publication outbox provenance."
+    },
+    {
+      "id": "outbox",
+      "parent": "creator-memory",
+      "label": "Publication outbox provenance",
+      "status": "amber",
+      "description": "Must prove witnessed provenance after restart; not certified."
+    },
+    {
+      "id": "authority",
+      "parent": "movie-mentor",
+      "label": "Durable server authority",
+      "status": "amber",
+      "description": "Selected isolated physical checks GREEN; full application integration not certified."
+    },
+    {
+      "id": "mongo",
+      "parent": "authority",
+      "label": "Physical Mongo commit / replay",
+      "status": "green",
+      "sha": "590aabcab8e7d7ebc3f6a0069628209aa9d9b4be",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44731517564",
+      "description": "Three independent processes, real CreatorMemory facade, isolated Mongo, authenticated commit/replay/conflict denial."
+    },
+    {
+      "id": "denial",
+      "parent": "authority",
+      "label": "Authority denial",
+      "status": "green",
+      "sha": "590aabcab8e7d7ebc3f6a0069628209aa9d9b4be",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44731517544",
+      "description": "Isolated authority denial court GREEN."
+    },
+    {
+      "id": "integration",
+      "parent": "authority",
+      "label": "End-to-end editable integration",
+      "status": "blue",
+      "description": "Required cross-boundary connection not independently certified."
+    },
+    {
+      "id": "images",
+      "parent": "movie-mentor",
+      "label": "Images",
+      "status": "gray",
+      "description": "Proposed engineering branch; needs repository audit."
+    },
+    {
+      "id": "video",
+      "parent": "movie-mentor",
+      "label": "Video",
+      "status": "gray",
+      "description": "Proposed engineering branch; needs repository audit."
+    },
+    {
+      "id": "audio",
+      "parent": "movie-mentor",
+      "label": "Audio and voices",
+      "status": "gray",
+      "description": "Proposed engineering branch; needs repository audit."
+    },
+    {
+      "id": "continuity-future",
+      "parent": "images",
+      "label": "Visual continuity director",
+      "status": "purple",
+      "description": "Future roadmap, outside Phase 01."
+    },
+    {
+      "id": "voice-future",
+      "parent": "audio",
+      "label": "Character voice / accent lock",
+      "status": "purple",
+      "description": "Future roadmap, outside Phase 01."
+    }
+  ],
+  "edges": [
+    {
+      "id": "facade-to-mongo",
+      "from": "read-only",
+      "to": "mongo",
+      "status": "green",
+      "description": "Scoped isolated three-process real-facade physical Mongo path only.",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44731517564"
+    },
+    {
+      "id": "mongo-to-editable",
+      "from": "mongo",
+      "to": "editable",
+      "status": "blue",
+      "description": "Physical read-only projection does not certify editable local adoption."
+    },
+    {
+      "id": "outbox-to-editable",
+      "from": "outbox",
+      "to": "editable",
+      "status": "red",
+      "description": "Original continuity/provenance gate unresolved."
+    }
+  ]
+}
