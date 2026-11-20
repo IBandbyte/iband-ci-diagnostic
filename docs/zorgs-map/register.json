@@ -318,6 +318,15 @@
       "sha": "89b9cad9f37b7a541aa4df262c58ae82318ec026",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44795474941/job/136493770424",
       "description": "Exact-head physical Mongo GREEN: server admission, positive authorized edit, fresh-process idempotent replay, intruder and stale-revision denial. Two-writer positive contention and real-facade writable restoration remain outstanding."
+    },
+    {
+      "id": "positive-server-edit-two-writer-contention",
+      "parent": "writable-adoption-integration",
+      "label": "Two independent positive-edit contenders",
+      "status": "green",
+      "sha": "4681e35cced8b863177fc928ec3c9256a2cb6571",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44796852899/job/136498510231",
+      "description": "Exact-head physical Mongo GREEN: contender 0 COMMITTED, contender 1 DENIED; one canonical revision advance and receipt, positive edit/restart replay and intruder/stale denial GREEN. Real frontend writable restoration remains outstanding."
     }
   ],
   "edges": [
