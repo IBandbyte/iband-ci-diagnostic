@@ -203,6 +203,16 @@
       "path": "src/components/studio/mentor/CreatorMemory.js",
       "sourceLines": "480-585",
       "description": "On fresh persisted outbox, denies when no matching live facade witness; returns publication-outbox-provenance-unverified. Restart-safe adoption still unresolved."
+    },
+    {
+      "id": "negative-editable-court",
+      "parent": "editable",
+      "label": "Negative-only physical Mongo adoption court",
+      "status": "green",
+      "sha": "efa6a3727beb23c225fd20129071c4adfe52c96b",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380",
+      "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380/job/136293242148",
+      "description": "Exact-head GREEN: valid durable receipt and replay do not grant editable adoption; forged outbox, intruder and stale revision denied. Does NOT certify positive editable restoration or original continuity RED."
     }
   ],
   "edges": [
@@ -271,8 +281,17 @@
       "to": "editable",
       "status": "red",
       "description": "CreatorMemory.js lines 521-531 expressly fail closed on unwitnessed persisted outbox after restart; original continuity RED still preserved."
+    },
+    {
+      "id": "negative-court-protects-editable",
+      "from": "negative-editable-court",
+      "to": "editable",
+      "status": "green",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380/job/136293242148",
+      "description": "Scoped negative-only fail-closed test passed; parent editable restoration remains RED."
     }
   ],
   "lastMapUpdate": "2026-11-20",
-  "lastInspectedFrontendHead": "344d98ff0c7e075a7e6530c8871670ad8044d220"
+  "lastInspectedFrontendHead": "344d98ff0c7e075a7e6530c8871670ad8044d220",
+  "latestEvidenceChecked": "2026-11-20T12:40:47Z"
 }
