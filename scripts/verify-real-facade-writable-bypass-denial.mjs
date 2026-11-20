@@ -16,7 +16,7 @@ assert.equal(JSON.stringify(facade.getState()),before);
 assert.equal(calls.length,1);
 console.log('GREEN REAL_FACADE_REMOTE_NONEMPTY_SNAPSHOT_NOT_ADOPTED');
 let denied=false;
-try{facade.replaceState({...facade.getState(),durablePublicationOutbox:result.state.durablePublicationOutbox})}catch(e){denied=e.code==='CREATOR_MEMORY_WRITE_AUTHORITY_DENIED'}
+try{facade.replaceState({...facade.getState(),durablePublicationOutbox:result.state.durablePublicationOutbox})}catch(e){denied=e.code==='CREATOR_MEMORY_WRITE_AUTHORITY_DENIED'||e.cause?.code==='CREATOR_MEMORY_WRITE_AUTHORITY_DENIED'}
 assert.equal(denied,true,'strict synchronous local write must remain denied');
 assert.equal(JSON.stringify(facade.getState()),before);
 console.log('GREEN STRICT_FACADE_SYNCHRONOUS_WRITABLE_BYPASS_DENIED');
