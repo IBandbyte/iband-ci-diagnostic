@@ -9,6 +9,7 @@ on:
       - 'scripts/isolated-server-owned-positive-editor.mjs'
       - 'scripts/isolated-frontend-continuation-compatibility.mjs'
       - 'scripts/isolated-creator-http-transport.mjs'
+      - 'scripts/isolated-browser-creator-http-adapter.mjs'
       - 'scripts/verify-isolated-creator-http-worker.mjs'
       - 'scripts/verify-isolated-creator-http-orchestrator.mjs'
       - '.github/workflows/isolated-authenticated-creator-http-transport.yml'
@@ -68,6 +69,8 @@ jobs:
           cp ../scripts/verify-frontend-boundary-compatibility-worker.mjs .
           cp ../scripts/verify-frontend-boundary-compatibility-orchestrator.mjs .
           cp ../scripts/isolated-creator-http-transport.mjs .
+          cp ../scripts/isolated-browser-creator-http-adapter.mjs .
+          cp ../frontend/src/components/studio/mentor/MovieMentorDurableCreatorWriteBoundary.js ./pinned-frontend-durable-creator-boundary.mjs
           cp ../scripts/verify-isolated-creator-http-worker.mjs .
           cp ../scripts/verify-isolated-creator-http-orchestrator.mjs .
           node ./verify-isolated-creator-http-orchestrator.mjs
