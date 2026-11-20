@@ -213,6 +213,16 @@
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380",
       "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380/job/136293242148",
       "description": "Exact-head GREEN: valid durable receipt and replay do not grant editable adoption; forged outbox, intruder and stale revision denied. Does NOT certify positive editable restoration or original continuity RED."
+    },
+    {
+      "id": "empty-outbox-grant-court",
+      "parent": "editable",
+      "label": "Empty-outbox grant contention",
+      "status": "green",
+      "sha": "73b68419acb7ffcc0cc2a9108b8daddd5b2dfdc7",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033",
+      "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033/job/136294990852",
+      "description": "Exact-head physical Mongo GREEN: two independent contenders, exactly one adopter, replay and intruder denial. Isolated grant primitive only; nonempty outbox provenance and original frontend RED held."
     }
   ],
   "edges": [
@@ -289,6 +299,14 @@
       "status": "green",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44737726380/job/136293242148",
       "description": "Scoped negative-only fail-closed test passed; parent editable restoration remains RED."
+    },
+    {
+      "id": "empty-grant-to-editable",
+      "from": "empty-outbox-grant-court",
+      "to": "editable",
+      "status": "green",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033/job/136294990852",
+      "description": "Scoped exclusive grant acquisition GREEN; not evidence of real facade editable adoption or publication provenance."
     }
   ],
   "lastMapUpdate": "2026-11-20",
