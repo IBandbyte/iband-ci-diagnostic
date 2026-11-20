@@ -1,0 +1,52 @@
+name: Isolated Authenticated CreatorMemory Positive Restart
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/verify-authenticated-creator-memory-positive-restart.mjs'
+      - '.github/workflows/isolated-authenticated-creator-memory-positive-restart.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  creator-memory-positive-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/movie_mentor_auth_guard_integration_isolated?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin application sources
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = a1996da41989fd3a1d5ccc99f4d425c468a292f8
+          git init backend
+          git -C backend fetch --depth=1 https://github.com/IBandbyte/iband-backend-first.git f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+          git -C backend checkout --detach FETCH_HEAD
+          test "$(git -C backend rev-parse HEAD)" = f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+      - name: Install isolated dependency
+        working-directory: backend
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Start isolated Mongo replica set
+        run: |
+          docker run -d --name creator-guard-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec creator-guard-rs0 mongosh --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec creator-guard-rs0 mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            if docker exec creator-guard-rs0 mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Demand authenticated positive restart via real CreatorMemory
+        working-directory: backend
+        run: |
+          cp ../scripts/verify-authenticated-creator-memory-positive-restart.mjs ./verify-authenticated-creator-memory-positive-restart.mjs
+          node ./verify-authenticated-creator-memory-positive-restart.mjs
