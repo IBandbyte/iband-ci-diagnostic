@@ -336,6 +336,15 @@
       "sha": "07bf69a1af45ca25d0ffe0eab91d5a3a58c1c800",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44805870880/job/136529590093",
       "description": "Exact-head physical GREEN: server admission, authorized edit without local publication promotion, fresh-process replay, intruder and forged fence denied. Real facade local writable adoption and original frontend RED remain HELD."
+    },
+    {
+      "id": "server-multi-edit-historical-replay",
+      "parent": "writable-adoption-integration",
+      "label": "Server multi-edit restart and historical replay",
+      "status": "green",
+      "sha": "9c5305b7702533156a36dcf7a38e70c2843abd86",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44814795253/job/136560219063",
+      "description": "Physical GREEN: first edit, second edit after fresh-process restart, historical and current receipt replay without duplication, intruder and stale revision denied. Real frontend local writable restoration and original RED HELD."
     }
   ],
   "edges": [
