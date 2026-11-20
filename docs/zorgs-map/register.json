@@ -345,6 +345,15 @@
       "sha": "9c5305b7702533156a36dcf7a38e70c2843abd86",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44814795253/job/136560219063",
       "description": "Physical GREEN: first edit, second edit after fresh-process restart, historical and current receipt replay without duplication, intruder and stale revision denied. Real frontend local writable restoration and original RED HELD."
+    },
+    {
+      "id": "real-facade-multi-edit-restart",
+      "parent": "writable-adoption-integration",
+      "label": "Real facade multi-edit across four independent processes",
+      "status": "green",
+      "sha": "775fd28fa5845737f633dd567bbafc89856a09d5",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44815820073/job/136563730793",
+      "description": "Physical 5/5 GREEN: admission, first real-facade bridge edit, second edit after reopen, historical and current replay with latest canonical readback, intruder and forged-fence denial. Real application UI writable integration and original frontend RED HELD."
     }
   ],
   "edges": [
