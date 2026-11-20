@@ -44,13 +44,15 @@ try{
    assert.equal(current.ok,true);assert.equal(current.replay,true);assert.equal(current.canonicalRevision,4);
    console.log('GREEN ADAPTER_HISTORICAL_AND_CURRENT_REPLAY_LATEST_CANONICAL');
    const intruderAdapter=createServerOwnedCreatorEditingAdapter({facade,editor,gate,token:process.env.INTRUDER_TOKEN,projectId,admissionOperationId:'admit1',fence:admission.fence});
+   const intruderRead=await intruderAdapter.read();assert.equal(intruderRead.ok,false);
    const intruder=await intruderAdapter.edit({operationId:'admit1:intruder',expectedRevision:4,content:'intruder'});
    assert.equal(intruder.ok,false);
    const forgedAdapter=createServerOwnedCreatorEditingAdapter({facade,editor,gate,token,projectId,admissionOperationId:'admit1',fence:'forged'});
+   const forgedRead=await forgedAdapter.read();assert.equal(forgedRead.ok,false);
    const forged=await forgedAdapter.edit({operationId:'admit1:forged',expectedRevision:4,content:'forged'});
    assert.equal(forged.ok,false);
    assert.equal(JSON.stringify(facade.getState()),baseline);
-   console.log('GREEN ADAPTER_INTRUDER_AND_FORGED_FENCE_DENIED');
+   console.log('GREEN ADAPTER_INTRUDER_AND_FORGED_FENCE_READ_AND_EDIT_DENIED');
    const otherFacade=createCreatorMemory({storageAdapter:createMemoryStorageAdapter(),requireSharedWriteAuthority:true});
    const other=createServerOwnedCreatorEditingAdapter({facade:otherFacade,editor,gate,token,projectId,admissionOperationId:'admit1',fence:admission.fence});
    const competing=await Promise.all([adapter.edit({operationId:'admit1:contender-a',expectedRevision:4,content:'scene-five-a'}),other.edit({operationId:'admit1:contender-b',expectedRevision:4,content:'scene-five-b'})]);
