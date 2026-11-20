@@ -34,3 +34,8 @@ No merge, deploy, application main changes or production database writes. Every 
 - Six physical GREEN markers: server admission, first HTTP edit/readback, second HTTP edit/readback, fresh-process historical/latest replay, intruder/invalid JWT/tampered replay denial, revoked owner read/edit denial.
 - The job explicitly prints `HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION`.
 - HTTP socket-loss recovery, concurrent HTTP writers, actual browser UI wiring and unchanged original frontend RED remain unverified. No production deployment or application main changes.
+
+## Concurrent HTTP writers — physical certification (2026-11-20)
+- Exact head `96d07bb311203172ed1049ba320c4c41493d8a78`; run `44827327877`; job `136603129269`.
+- Seven GREEN markers including `HTTP_TWO_CONCURRENT_WRITERS_EXACTLY_ONE_WINNER`. Exactly one of two competing authenticated HTTP operations committed at expected revision 4; revision advanced to 5 with three total edit receipts.
+- Original frontend RED and real UI integration remain HELD. Interrupted-connection outcome-unknown recovery is still unverified for HTTP.
