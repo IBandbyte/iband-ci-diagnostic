@@ -2,7 +2,7 @@
 import {createServer} from 'node:http';
 import {createFrontendContinuationCompatibility} from './isolated-frontend-continuation-compatibility.mjs';
 const MAX_BODY=128*1024;
-export function createIsolatedCreatorHttpServer({gate,editor,projectId,admissionOperationId}={}){
+export function createIsolatedCreatorHttpServer({gate,editor,projectId,admissionOperationId,afterCommitBeforeReply}={}){
  return createServer(async(req,res)=>{
   const reply=(status,body)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body))};
   if(req.method!=='POST'||!['/creator/commit','/creator/read-committed'].includes(req.url))return reply(404,{error:'not-found'});
@@ -21,6 +21,7 @@ export function createIsolatedCreatorHttpServer({gate,editor,projectId,admission
    const result=req.url==='/creator/commit'
     ?await adapter.commit({authenticatedSession,...input})
     :await adapter.readCommitted({authenticatedSession,projectId:input.projectId,operationId:input.operationId});
+   if(result&&req.url==='/creator/commit'&&typeof afterCommitBeforeReply==='function'&&await afterCommitBeforeReply({input,result,req,res})===true){req.socket.destroy();return}
    return result?reply(200,result):reply(403,{error:'denied'});
   }catch{return reply(400,{error:'invalid-request'})}
  });
