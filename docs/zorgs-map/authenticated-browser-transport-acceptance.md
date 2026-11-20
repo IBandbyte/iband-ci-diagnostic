@@ -39,3 +39,8 @@ No merge, deploy, application main changes or production database writes. Every 
 - Exact head `96d07bb311203172ed1049ba320c4c41493d8a78`; run `44827327877`; job `136603129269`.
 - Seven GREEN markers including `HTTP_TWO_CONCURRENT_WRITERS_EXACTLY_ONE_WINNER`. Exactly one of two competing authenticated HTTP operations committed at expected revision 4; revision advanced to 5 with three total edit receipts.
 - Original frontend RED and real UI integration remain HELD. Interrupted-connection outcome-unknown recovery is still unverified for HTTP.
+
+## Socket-loss and fresh-process HTTP recovery — physical certification (2026-11-20)
+- Exact head `23cee1626ef3e3ea0dc41064ba5065c17c354c88`; run `44828125819`, job `136605843435`: **nine physical GREEN markers**, including `HTTP_POST_COMMIT_SOCKET_LOSS_DURABLE_EFFECT` and `HTTP_FRESH_PROCESS_SAME_OPERATION_REPLAY_NO_DUPLICATE`.
+- Separate earlier run `44828111185`, job `136605797724` is RED at revocation assertion; retain as historical failure, do not borrow a verdict from it.
+- The nine GREEN certify isolated server HTTP behaviour, **not** real browser/UI integration, original frontend continuity, production readiness, or deployment.
