@@ -282,6 +282,15 @@
       "sha": "b9b7cde3f42d36006e99a0679e69c06cbe51e050",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44787330990/job/136465532662",
       "description": "Exact-head physical Mongo GREEN: two independent writer contenders, exactly one acquired; fresh-process replay and intruder denied. No real-facade writable local adoption."
+    },
+    {
+      "id": "server-writable-admission-fence",
+      "parent": "writable-adoption-integration",
+      "label": "Server-owned fenced writable admission",
+      "status": "green",
+      "sha": "3243fdcde1588087335f3b1dc30c88514c60d33d",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44790918298/job/136478022716",
+      "description": "Exact-head physical Mongo GREEN: nonempty server ledger, two independent contenders one admitted, fresh-process fenced readback, intruder and post-admission ledger tamper denied. Diagnostic only, no real-facade writable local adoption."
     }
   ],
   "edges": [
@@ -419,6 +428,14 @@
       "status": "blue",
       "description": "Grant exclusivity is GREEN in isolated Mongo; real facade writable adoption and verified snapshot boundary still outstanding.",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44787330990/job/136465532662"
+    },
+    {
+      "id": "server-fence-to-real-facade",
+      "from": "server-writable-admission-fence",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Isolated server admission certified, real CreatorMemory local writable adoption and browser writer coordination remain unverified.",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44790918298/job/136478022716"
     }
   ],
   "lastMapUpdate": "2026-11-20",
