@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Zorg's Map</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#101827;color:#eaf0fb}*{box-sizing:border-box}
+body{max-width:1100px;margin:auto;padding:22px}header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center}
+h1{margin:0}small,.muted{color:#a5b2c8}button,input{font:inherit}button{cursor:pointer}
+.panel{background:#1b2639;border:1px solid #34435a;border-radius:14px;padding:16px;margin:12px 0}
+.grid{display:grid;grid-template-columns:minmax(240px,1fr) minmax(260px,1fr);gap:14px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.node{display:block;text-align:left;background:#25344b;border:1px solid #40516b;border-radius:9px;color:inherit;padding:10px;margin:7px 0;width:100%}
+.node:hover,.node:focus{outline:2px solid #8bbcfb}.node.active{background:#354966}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:9px}
+.green{background:#2ec77c}.red{background:#ff626a}.amber{background:#edb94b}.blue{background:#5ba9fa}.purple{background:#b48aff}.gray{background:#9aa6b5}
+.child{margin-left:15px;padding-left:13px;border-left:1px solid #51627b}
+a{color:#9fd0ff;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style></head><body>
+<header><div><h1>🗺️ Zorg's Map</h1><small>Zonal Overview & Reliability Graph — read-only diagnostic viewer</small></div><div><label for="file">Load evidence register JSON:</label> <input id="file" type="file" accept=".json,application/json"></div></header>
+<p class="muted">Load <code>register.json</code> from the same GitHub folder. This viewer makes no server writes. Colours describe independently scoped evidence, not a percentage complete.</p>
+<div class="panel" id="summary">Waiting for register.json. No statuses are claimed until loaded.</div>
+<div class="grid"><section class="panel"><h2>Engineering tree</h2><div id="tree">Select the register file above.</div></section>
+<section class="panel"><h2>Station details</h2><div id="detail">Select a branch to inspect its exact evidence.</div><h3>Connections</h3><div id="edges">Load the register to view connections.</div></section></div>
+<div class="panel"><strong>Captain's Protocol:</strong> VERIFIER FIRST · Phase 01 HELD · No borrowed GREEN · Original RED preserved · No main change / production write / deploy / merge.</div>
+<script>
+const colors=['green','red','amber','blue','purple','gray'];let db=null,selected=null;
+const el=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dot=s=>'<span class="dot '+(colors.includes(s)?s:'gray')+'"></span>';
+function render(){
+const byParent=new Map();for(const n of db.nodes){const p=n.parent??'root';byParent.set(p,[...(byParent.get(p)||[]),n])}
+function tree(parent,depth){return (byParent.get(parent)||[]).map(n=>'<div class="'+(depth?'child':'')+'"><button class="node '+(selected===n.id?'active':'')+'" data-node="'+esc(n.id)+'">'+dot(n.status)+esc(n.label)+'</button>'+tree(n.id,depth+1)+'</div>').join('')}
+el('tree').innerHTML=tree('root',0);
+el('summary').textContent=db.title+' | Snapshot '+db.asOf+' | '+db.phase+' | '+db.nodes.length+' nodes / '+db.edges.length+' edges. Snapshot is not live CI.';
+const n=db.nodes.find(n=>n.id===selected);
+el('detail').innerHTML=n?'<h3>'+dot(n.status)+esc(n.label)+'</h3><p>'+esc(n.description)+'</p><p>Status: <strong>'+esc(n.status.toUpperCase())+'</strong></p>'+(n.sha?'<p>Exact head: <code>'+esc(n.sha)+'</code></p>':'')+(n.evidence?'<p><a target="_blank" rel="noopener" href="'+encodeURI(n.evidence)+'">Open GitHub CI evidence</a></p>':''):'Select a branch to inspect its exact evidence.';
+const links=db.edges.filter(e=>!selected||e.from===selected||e.to===selected);
+el('edges').innerHTML=links.length?links.map(e=>'<div class="node">'+dot(e.status)+esc(e.from)+' → '+esc(e.to)+'<p class="muted">'+esc(e.description)+'</p>'+(e.evidence?'<a target="_blank" rel="noopener" href="'+encodeURI(e.evidence)+'">Evidence</a>':'')+'</div>').join(''):'No registered connections for this branch.';
+document.querySelectorAll('[data-node]').forEach(b=>b.onclick=()=>{selected=b.dataset.node;render()});
+}
+el('file').onchange=async e=>{try{const obj=JSON.parse(await e.target.files[0].text());if(!Array.isArray(obj.nodes)||!Array.isArray(obj.edges))throw Error('Missing nodes or edges');db=obj;selected='movie-mentor';render()}catch(err){el('summary').textContent='Cannot load register: '+err.message}};
+</script></body></html>
