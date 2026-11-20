@@ -56,5 +56,21 @@ try{
    assert.equal(JSON.stringify(facade.getState()),baseline);
    console.log(second?'GREEN PINNED_FRONTEND_BOUNDARY_SECOND_EDIT':'GREEN PINNED_FRONTEND_BOUNDARY_FIRST_EDIT');
   }
+ }else if(phase==='revoke'){
+  const admission=await gate.admissions.findOne({projectId});assert.ok(admission);
+  const adapter=createFrontendContinuationCompatibility({gate,editor,token,projectId,admissionOperationId:'admit1',fence:admission.fence});
+  const before=await gate.states.findOne({projectId});assert.equal(before.revision,4);
+  await gate.states.updateOne({_id:before._id,revision:4,revoked:false},{$set:{revoked:true}});
+  const old=await adapter.readCommitted({authenticatedSession:{serverVerified:true},projectId,operationId:'admit1:edit1'});
+  assert.equal(old,null,'revoked owner must not read historical receipt');
+  const latest=await adapter.readCommitted({authenticatedSession:{serverVerified:true},projectId,operationId:'admit1:edit2'});
+  assert.equal(latest,null,'revoked owner must not read latest receipt');
+  const proposal={...before.state,content:'forbidden-scene-five'};
+  const denied=await continueCreatorMemoryWithDurableAuthority({projectId,operationId:'admit1:edit3',expectedRevision:4,authenticatedSession:{serverVerified:true},proposedState:proposal,authorityAdapter:adapter});
+  assert.equal(denied.acquired,false,'revoked owner must not edit');
+  assert.equal((await gate.states.findOne({projectId})).revision,4);
+  assert.equal(await editor.edits.countDocuments({projectId}),2);
+  console.log('GREEN PINNED_FRONTEND_BOUNDARY_REVOKED_OWNER_READ_REPLAY_AND_EDIT_DENIED');
+  console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
 }finally{await client.close()}
