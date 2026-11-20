@@ -24,9 +24,9 @@ jobs:
       - name: Pin application sources
         run: |
           git init frontend
-          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 7058793da5fa50128dbd4d8b6920a5b7830f7e79
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
           git -C frontend checkout --detach FETCH_HEAD
-          test "$(git -C frontend rev-parse HEAD)" = 7058793da5fa50128dbd4d8b6920a5b7830f7e79
+          test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
           git init backend
           git -C backend fetch --depth=1 https://github.com/IBandbyte/iband-backend-first.git f367cd1964bac89b7ba23f1a662c0df19c3b8d16
           git -C backend checkout --detach FETCH_HEAD
