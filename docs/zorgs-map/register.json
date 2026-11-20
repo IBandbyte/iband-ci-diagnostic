@@ -233,6 +233,16 @@
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780",
       "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780/job/136458410719",
       "description": "Exact-head physical Mongo GREEN: unproven nonempty outbox cannot issue grant; mutation after issuance and ownership revision changes deny consumption. Positive server provenance and original frontend RED remain held."
+    },
+    {
+      "id": "positive-server-provenance",
+      "parent": "outbox",
+      "label": "Server-owned nonempty publication provenance",
+      "status": "green",
+      "sha": "73191e5b12a32ba6fe6d6ccd91004df4a7f5516e",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629",
+      "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629/job/136459657348",
+      "description": "Exact-head isolated physical Mongo GREEN: atomic nonempty outbox+server ledger; fresh-process grant consumption and replay denial; intruder and ledger tampering denial. Not real facade editable adoption."
     }
   ],
   "edges": [
@@ -325,6 +335,14 @@
       "status": "green",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780/job/136458410719",
       "description": "Scoped negative physical evidence only; outbox parent remains AMBER until positive server-provenanced restart path passes."
+    },
+    {
+      "id": "server-provenance-to-editable",
+      "from": "positive-server-provenance",
+      "to": "editable",
+      "status": "blue",
+      "description": "Isolated authority positive proven; actual CreatorMemory editable adoption integration and original continuity acceptance remain unverified.",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785644629/job/136459657348"
     }
   ],
   "lastMapUpdate": "2026-11-20",
