@@ -163,6 +163,46 @@
       "sha": "344d98ff0c7e075a7e6530c8871670ad8044d220",
       "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676",
       "description": "Scoped isolated read-only continuation GREEN; does not certify editable restoration."
+    },
+    {
+      "id": "core",
+      "parent": "creator-memory",
+      "label": "CreatorMemoryCore.js",
+      "status": "gray",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/CreatorMemoryCore.js",
+      "sourceSha": "7fd5c84cf9764a9315c0cde7bef5431a8d8376e2",
+      "description": "Imported by CreatorMemory facade; full behaviour not audited."
+    },
+    {
+      "id": "write-coordination",
+      "parent": "creator-memory",
+      "label": "MemoryWriteAuthority.js",
+      "status": "gray",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/MovieMentorMemoryWriteAuthority.js",
+      "sourceSha": "66c8b42fb37ef79f36968b768b66962508308bf3",
+      "description": "Imported for shared write coordination; no standalone certification inferred."
+    },
+    {
+      "id": "journey-read",
+      "parent": "creator-memory",
+      "label": "JourneyAuthorityReadFacade.js",
+      "status": "gray",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/JourneyAuthorityReadFacade.js",
+      "sourceSha": "aa2d188339d46ab1e6ca2dd9cd2a7970f61f526f",
+      "description": "Imported by CreatorMemory facade; no blanket certification inferred."
+    },
+    {
+      "id": "publication-guard",
+      "parent": "editable",
+      "label": "Outbox live-witness guard",
+      "status": "red",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/CreatorMemory.js",
+      "sourceLines": "480-585",
+      "description": "On fresh persisted outbox, denies when no matching live facade witness; returns publication-outbox-provenance-unverified. Restart-safe adoption still unresolved."
     }
   ],
   "edges": [
@@ -189,20 +229,50 @@
       "description": "Original continuity/provenance gate unresolved."
     },
     {
-      "id": "facade-to-boundary",
-      "from": "creator-memory-facade",
-      "to": "creator-boundary",
-      "status": "blue",
-      "description": "Both real source files inspected; runtime path requires source-level and exact-head edge verification."
-    },
-    {
       "id": "facade-to-continuation-court",
       "from": "creator-memory-facade",
       "to": "continuation-court",
       "status": "green",
       "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676",
       "description": "Verifier imports real facade and exercises read-only continuation, not editable restoration."
+    },
+    {
+      "id": "facade-import-core",
+      "from": "creator-memory-facade",
+      "to": "core",
+      "status": "gray",
+      "description": "Confirmed static import CreatorMemory.js lines 1-19 at frontend 344d98ff0c7e075a7e6530c8871670ad8044d220; runtime semantics not fully certified."
+    },
+    {
+      "id": "facade-import-journey",
+      "from": "creator-memory-facade",
+      "to": "journey-read",
+      "status": "gray",
+      "description": "Confirmed static import CreatorMemory.js line 25; runtime semantics not fully certified."
+    },
+    {
+      "id": "facade-import-write",
+      "from": "creator-memory-facade",
+      "to": "write-coordination",
+      "status": "gray",
+      "description": "Confirmed static import CreatorMemory.js line 26; runtime semantics not fully certified."
+    },
+    {
+      "id": "facade-dynamic-boundary",
+      "from": "creator-memory-facade",
+      "to": "creator-boundary",
+      "status": "green",
+      "description": "Confirmed actual dynamic import and invocation in CreatorMemory.js lines 771-776; GREEN limited to source wiring and isolated read-only continuation court, not production or editable adoption.",
+      "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676"
+    },
+    {
+      "id": "guard-to-editable",
+      "from": "publication-guard",
+      "to": "editable",
+      "status": "red",
+      "description": "CreatorMemory.js lines 521-531 expressly fail closed on unwitnessed persisted outbox after restart; original continuity RED still preserved."
     }
   ],
-  "lastMapUpdate": "2026-11-20"
+  "lastMapUpdate": "2026-11-20",
+  "lastInspectedFrontendHead": "344d98ff0c7e075a7e6530c8871670ad8044d220"
 }
