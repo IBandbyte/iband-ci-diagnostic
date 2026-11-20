@@ -19,14 +19,14 @@ export function createServerOwnedEditor({gate,db,client,publicKey}){
      if(canonical&&admission&&prior.ownerId===ownerId&&prior.ownershipRevision===canonical.ownershipRevision&&prior.fence===fence&&prior.expectedRevision===expectedRevision&&prior.contentDigest===digest(content)&&prior.admissionOperationId===admissionOperationId&&canonical.revision===prior.revision&&digest(canonical.state)===prior.stateDigest)result={ok:true,replay:true,revision:prior.revision};
      return;
     }
-    const admitted=await gate.readAdmission({token,projectId,operationId:admissionOperationId,fence});
-    if(!admitted)return;
+    const admission=await gate.admissions.findOne({projectId,ownerId,operationId:admissionOperationId,fence,status:'admitted'},{session});
+    if(!admission)return;
     const state=await gate.states.findOne({projectId,revision:expectedRevision,activeWriterFence:fence,activeAdoptionGrant:{$exists:true},revoked:false},{session});
-    if(!state||state.ownerId!==ownerId||state.ownerId!== (await gate.admissions.findOne({projectId,operationId:admissionOperationId,fence,status:'admitted'},{session}))?.ownerId)return;
+    if(!state||state.ownerId!==ownerId||state.ownershipRevision!==admission.ownershipRevision||state.activeAdoptionGrant!==admission.grantId)return;
     const last=await edits.find({projectId,fence},{session}).sort({revision:-1}).limit(1).next();
     if(last){
-     if(last.revision!==expectedRevision||last.stateDigest!==digest(state.state))return;
-    }else if(admitted.revision!==expectedRevision||digest(state.state)!==digest(admitted.state))return;
+     if(last.revision!==expectedRevision||last.stateDigest!==digest(state.state)||last.ownershipRevision!==state.ownershipRevision||last.outboxDigest!==digest(state.state.durablePublicationOutbox))return;
+    }else if(admission.revision!==expectedRevision||digest(state.state)!==admission.stateDigest)return;
     const next={...state.state,content};
     const updated=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$set:{revision:expectedRevision+1,state:next}},{session});
     if(updated.matchedCount!==1)throw Error('concurrent-editor-conflict');
