@@ -43,7 +43,10 @@ try{
  assert.equal(attempted.acquired,false,'Authenticated admission must not silently bypass unwitnessed outbox');
  assert.equal(attempted.reason,'publication-outbox-provenance-unverified');
  assert.equal(JSON.stringify(restarted.getState()),persistedBefore);
- assert.equal(await authorized(token.replace(/.$/,'x'),1,1),false);
+ const parts=token.split('.');
+ const forgedClaims={...JSON.parse(Buffer.from(parts[1],'base64url')),sub:'intruder'};
+ const forged=[parts[0],b64(forgedClaims),parts[2]].join('.');
+ assert.equal(await authorized(forged,1,1),false,'Modified signed claims must fail signature verification');
  await projects.updateOne({projectId:'auth-guard-film'},{$set:{ownerId:'new-owner',ownershipRevision:2}});
  assert.equal(await authorized(token,1,1),false);
  assert.equal(JSON.stringify(restarted.getState()),persistedBefore);
