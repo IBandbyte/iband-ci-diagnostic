@@ -11,7 +11,11 @@ export function createServerOwnedCreatorEditingAdapter({facade,gate,editor,token
   if(!required)return reject('required-authority-unavailable');
   const before=snapshot();
   // Readback is NOT an authority grant: never infer ownership from this data.
-  const canonical=await gate.states.findOne({projectId,activeWriterFence:fence,revoked:false});
+  const ownerId=gate.authenticateOwner?.(token);
+  if(!ownerId)return reject('unauthenticated-canonical-read');
+  const admission=await gate.admissions.findOne({projectId,operationId:admissionOperationId,ownerId,fence,status:'admitted'});
+  if(!admission)return reject('unauthorized-canonical-read');
+  const canonical=await gate.states.findOne({projectId,ownerId,ownershipRevision:admission.ownershipRevision,activeAdoptionGrant:admission.grantId,activeWriterFence:fence,revoked:false});
   if(snapshot()!==before)throw Error('strict-facade-mutated-by-canonical-read');
   if(!canonical)return reject('canonical-readback-unavailable');
   return Object.freeze({ok:true,canonicalRevision:canonical.revision,state:structuredClone(canonical.state),restorationMode:'server-read-only',localFacadeWritable:false,localStateAdopted:false});
