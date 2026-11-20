@@ -34,12 +34,24 @@ try{
   const invalid=await commit('invalid','admit1:invalid',4,{...state,content:'invalid'});assert.equal(invalid.status,401);
   const mismatched=await commit(owner,'admit1:edit1',2,{...state,content:'tampered'});assert.notEqual(mismatched.status,200);
   console.log('GREEN HTTP_INTRUDER_INVALID_JWT_AND_TAMPER_DENIED');
+ }else if(phase==='concurrent'){
+  assert.equal(canonical.revision,4);
+  const a={...canonical.state,content:'race-writer-a'},b={...canonical.state,content:'race-writer-b'};
+  const results=await Promise.all([commit(owner,'admit1:raceA',4,a),commit(owner,'admit1:raceB',4,b)]);
+  assert.equal(results.filter(r=>r.status===200).length,1,JSON.stringify(results));
+  assert.equal(results.filter(r=>r.status!==200).length,1,JSON.stringify(results));
+  const winner=results[0].status===200?'admit1:raceA':'admit1:raceB';
+  const receipt=await read(owner,winner);assert.equal(receipt.status,200);
+  assert.equal(receipt.data.committedRevision,5);
+  assert.equal((await gate.states.findOne({projectId})).revision,5);
+  assert.equal(await editor.edits.countDocuments({projectId}),3);
+  console.log('GREEN HTTP_TWO_CONCURRENT_WRITERS_EXACTLY_ONE_WINNER');
  }else if(phase==='revoke'){
-  assert.equal(canonical.revision,4);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
+  assert.equal(canonical.revision,5);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
   assert.notEqual((await read(owner,'admit1:edit1')).status,200);
   assert.notEqual((await read(owner,'admit1:edit2')).status,200);
   assert.notEqual((await commit(owner,'admit1:edit3',4,{...canonical.state,content:'forbidden'})).status,200);
-  assert.equal((await gate.states.findOne({projectId})).revision,4);assert.equal(await editor.edits.countDocuments({projectId}),2);
+  assert.equal((await gate.states.findOne({projectId})).revision,5);assert.equal(await editor.edits.countDocuments({projectId}),3);
   console.log('GREEN HTTP_REVOKED_OWNER_READ_AND_EDIT_DENIED');
   console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
