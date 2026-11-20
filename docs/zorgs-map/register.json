@@ -300,6 +300,15 @@
       "sha": "68a6608999791143aeaff013e6f0d322e5266801",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44791452503/job/136479879846",
       "description": "Exact-head physical Mongo GREEN: pinned real CreatorMemory facade, server fenced canonical readback, intruder/forged fence denial and post-admission ledger tamper denial. No local state adoption; original frontend RED held."
+    },
+    {
+      "id": "real-facade-writable-bypass-denial",
+      "parent": "writable-adoption-integration",
+      "label": "Real facade writable bypass denial",
+      "status": "green",
+      "sha": "171e1881e86cb5638215efa90f00e1fd79f7e82c",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44792464179/job/136483409553",
+      "description": "Exact-head CI GREEN: remote nonempty snapshot not adopted; synchronous strict-facade bypass denied; server grant cannot promote publication witness. Negative safety court only, positive writable adoption outstanding."
     }
   ],
   "edges": [
@@ -452,6 +461,13 @@
       "to": "writable-adoption-integration",
       "status": "blue",
       "description": "Real facade read-only inspection certified; server-owned writable local adoption and original frontend continuity remain outstanding."
+    },
+    {
+      "id": "writable-bypass-to-positive-adoption",
+      "from": "real-facade-writable-bypass-denial",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Negative safety court certified; positive editable restoration and original frontend RED unresolved."
     }
   ],
   "lastMapUpdate": "2026-11-20",
