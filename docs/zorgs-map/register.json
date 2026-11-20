@@ -223,6 +223,16 @@
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033",
       "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033/job/136294990852",
       "description": "Exact-head physical Mongo GREEN: two independent contenders, exactly one adopter, replay and intruder denial. Isolated grant primitive only; nonempty outbox provenance and original frontend RED held."
+    },
+    {
+      "id": "nonempty-provenance-denial",
+      "parent": "outbox",
+      "label": "Nonempty publication provenance denial",
+      "status": "green",
+      "sha": "1b2a0bd02ed2b9b385aee613c03c29ef8a81c058",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780",
+      "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780/job/136458410719",
+      "description": "Exact-head physical Mongo GREEN: unproven nonempty outbox cannot issue grant; mutation after issuance and ownership revision changes deny consumption. Positive server provenance and original frontend RED remain held."
     }
   ],
   "edges": [
@@ -307,6 +317,14 @@
       "status": "green",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44738242033/job/136294990852",
       "description": "Scoped exclusive grant acquisition GREEN; not evidence of real facade editable adoption or publication provenance."
+    },
+    {
+      "id": "nonempty-denial-to-outbox",
+      "from": "nonempty-provenance-denial",
+      "to": "outbox",
+      "status": "green",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44785290780/job/136458410719",
+      "description": "Scoped negative physical evidence only; outbox parent remains AMBER until positive server-provenanced restart path passes."
     }
   ],
   "lastMapUpdate": "2026-11-20",
