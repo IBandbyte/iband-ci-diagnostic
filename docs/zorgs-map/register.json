@@ -273,6 +273,15 @@
       "label": "Writable restart and two-writer contention court",
       "status": "amber",
       "description": "Planned independent Mongo workers: one writer, replay denial, ownership revocation, stale revision, socket-loss unknown outcome and restart. No certified CI yet."
+    },
+    {
+      "id": "nonempty-writable-grant-contention",
+      "parent": "writable-adoption-integration",
+      "label": "Nonempty server-origin grant contention",
+      "status": "green",
+      "sha": "b9b7cde3f42d36006e99a0679e69c06cbe51e050",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44787330990/job/136465532662",
+      "description": "Exact-head physical Mongo GREEN: two independent writer contenders, exactly one acquired; fresh-process replay and intruder denied. No real-facade writable local adoption."
     }
   ],
   "edges": [
@@ -402,6 +411,14 @@
       "to": "writable-adoption-integration",
       "status": "blue",
       "description": "Physical restart and exclusive writer evidence required before integration can be certified."
+    },
+    {
+      "id": "nonempty-contention-to-writable",
+      "from": "nonempty-writable-grant-contention",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Grant exclusivity is GREEN in isolated Mongo; real facade writable adoption and verified snapshot boundary still outstanding.",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44787330990/job/136465532662"
     }
   ],
   "lastMapUpdate": "2026-11-20",
