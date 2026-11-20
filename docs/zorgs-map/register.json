@@ -252,6 +252,27 @@
       "sha": "3d5c6f2e037b2687b49f1342c31c3ee664ed4e1f",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680/job/136462091572",
       "description": "Physical three-process Mongo GREEN: real CreatorMemory.js read-only continuation with server-owned nonempty publication history; fresh-process replay; intruder, forgery, tamper denials. No local adoption."
+    },
+    {
+      "id": "writable-adoption-integration",
+      "parent": "editable",
+      "label": "Real facade writable adoption integration",
+      "status": "blue",
+      "description": "Not implemented or physically certified. Requires server-issued adoption authority, exclusive writer fence, nonempty provenance, verified snapshot and fresh-process recovery. No bypass of publication guard."
+    },
+    {
+      "id": "original-frontend-continuity",
+      "parent": "editable",
+      "label": "Original frontend continuity acceptance",
+      "status": "red",
+      "description": "Original unchanged frontend RED remains the final Phase 01 acceptance gate; no borrowed GREEN from isolated courts."
+    },
+    {
+      "id": "adoption-restart-contention",
+      "parent": "writable-adoption-integration",
+      "label": "Writable restart and two-writer contention court",
+      "status": "amber",
+      "description": "Planned independent Mongo workers: one writer, replay denial, ownership revocation, stale revision, socket-loss unknown outcome and restart. No certified CI yet."
     }
   ],
   "edges": [
@@ -360,9 +381,58 @@
       "status": "green",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680/job/136462091572",
       "description": "Scoped real facade read-only bridge proven. Writable adoption and original continuity RED remain outstanding."
+    },
+    {
+      "id": "readonly-to-writable-adoption",
+      "from": "real-facade-nonempty-readonly",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Real-facade read-only recovery is certified; local writable state adoption has no verified authority boundary yet."
+    },
+    {
+      "id": "writable-to-original-continuity",
+      "from": "writable-adoption-integration",
+      "to": "original-frontend-continuity",
+      "status": "red",
+      "description": "Original continuity RED cannot be cleared by isolated writable-adoption checks; must run unchanged original acceptance."
+    },
+    {
+      "id": "adoption-contention-dependency",
+      "from": "adoption-restart-contention",
+      "to": "writable-adoption-integration",
+      "status": "blue",
+      "description": "Physical restart and exclusive writer evidence required before integration can be certified."
     }
   ],
   "lastMapUpdate": "2026-11-20",
   "lastInspectedFrontendHead": "344d98ff0c7e075a7e6530c8871670ad8044d220",
-  "latestEvidenceChecked": "2026-11-20T12:40:47Z"
+  "latestEvidenceChecked": {
+    "0": "2",
+    "1": "0",
+    "2": "2",
+    "3": "6",
+    "4": "-",
+    "5": "1",
+    "6": "1",
+    "7": "-",
+    "8": "2",
+    "9": "0",
+    "10": "T",
+    "11": "1",
+    "12": "2",
+    "13": ":",
+    "14": "4",
+    "15": "0",
+    "16": ":",
+    "17": "4",
+    "18": "7",
+    "19": "Z",
+    "realFacadeNonemptyReadOnly": {
+      "head": "3d5c6f2e037b2687b49f1342c31c3ee664ed4e1f",
+      "run": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680",
+      "job": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44786342680/job/136462091572",
+      "verdict": "green",
+      "scope": "three-process real-facade read-only nonempty provenance, replay and denial only"
+    }
+  }
 }
