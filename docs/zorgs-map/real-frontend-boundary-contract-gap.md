@@ -19,3 +19,10 @@ The isolated `createServerOwnedCreatorEditingAdapter` instead exposes `read()` a
 A 6/6 GREEN isolated editing adapter is not a GREEN for the real `commit/readCommitted` frontend contract. No integration claim until this mismatch is resolved and physically verified.
 
 VERIFIER FIRST. Phase 01 HELD. Application main untouched. No production write, deploy, or merge.
+
+## Physical compatibility certification — 2026-11-20
+- Exact head: `0039d7d39e94bd8f70de3a6dc9ab760762913f89`.
+- GitHub Actions run: `44822445951`, job: `136586484961`.
+- Five physical GREEN markers: server admission; first pinned-boundary edit; second pinned-boundary edit; fresh-process historical/current receipt readback; intruder/forged-fence denial.
+- Job explicitly printed `HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION`.
+- This certifies the isolated compatibility court only, NOT browser transport, real UI integration, revoked-ownership denial, or the original frontend RED.
