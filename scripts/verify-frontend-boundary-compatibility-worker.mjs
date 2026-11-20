@@ -25,7 +25,7 @@ try{
   const admission=await gate.admissions.findOne({projectId});assert.ok(admission);
   const adapter=createFrontendContinuationCompatibility({gate,editor,token,projectId,admissionOperationId:'admit1',fence:admission.fence});
   const second=phase==='second';
-  const proposedState={...(await gate.states.findOne({projectId})).state,content:second?'creator-approved-scene-four':'creator-approved-scene-three'};
+  const proposedState={...(await gate.states.findOne({projectId})).state,content:(second||phase==='restart')?'creator-approved-scene-four':'creator-approved-scene-three'};
   if(phase==='restart'){
    const previous={...proposedState,content:'creator-approved-scene-three'};
    const old=await continueCreatorMemoryWithDurableAuthority({projectId,operationId:'admit1:edit1',expectedRevision:2,authenticatedSession:{serverVerified:true},proposedState:previous,authorityAdapter:adapter});
