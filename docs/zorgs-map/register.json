@@ -327,6 +327,15 @@
       "sha": "4681e35cced8b863177fc928ec3c9256a2cb6571",
       "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44796852899/job/136498510231",
       "description": "Exact-head physical Mongo GREEN: contender 0 COMMITTED, contender 1 DENIED; one canonical revision advance and receipt, positive edit/restart replay and intruder/stale denial GREEN. Real frontend writable restoration remains outstanding."
+    },
+    {
+      "id": "real-facade-server-edit-bridge-physical",
+      "parent": "writable-adoption-integration",
+      "label": "Real facade server-owned edit bridge physical court",
+      "status": "green",
+      "sha": "07bf69a1af45ca25d0ffe0eab91d5a3a58c1c800",
+      "evidence": "https://github.com/IBandbyte/iband-ci-diagnostic/actions/runs/44805870880/job/136529590093",
+      "description": "Exact-head physical GREEN: server admission, authorized edit without local publication promotion, fresh-process replay, intruder and forged fence denied. Real facade local writable adoption and original frontend RED remain HELD."
     }
   ],
   "edges": [
