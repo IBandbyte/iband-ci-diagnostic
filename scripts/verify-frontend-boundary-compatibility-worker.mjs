@@ -23,7 +23,6 @@ try{
   console.log('GREEN ADAPTER_SERVER_ADMISSION');
  }else if(['edit','second','restart'].includes(phase)){
   const admission=await gate.admissions.findOne({projectId});assert.ok(admission);
-  const second=phase==='second';
   const adapter=createFrontendContinuationCompatibility({gate,editor,token,projectId,admissionOperationId:'admit1',fence:admission.fence});
   const second=phase==='second';
   const proposedState={...(await gate.states.findOne({projectId})).state,content:second?'creator-approved-scene-four':'creator-approved-scene-three'};
