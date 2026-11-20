@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign} from 'node:crypto';
+import {MongoClient} from 'mongodb';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {createIsolatedMongoCreatorAuthority} from './isolated-mongo-creator-authority-adapter.mjs';
+const {continueCreatorMemoryWithDurableAuthority}=await import(pathToFileURL(resolve('../frontend/src/components/studio/mentor/MovieMentorDurableCreatorWriteBoundary.js')).href);
+const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const now=Math.floor(Date.now()/1000),issuer='https://isolated-auth.test',audience='movie-mentor-creator-write';
+const b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+function jwt(sub){const payload=`${b64({alg:'RS256',typ:'JWT'})}.${b64({iss:issuer,aud:audience,sub,iat:now,nbf:now-1,exp:now+180})}`;return `${payload}.${sign('RSA-SHA256',Buffer.from(payload),privateKey).toString('base64url')}`;}
+const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});
+await client.connect();
+try{
+ const db=client.db('movie_mentor_authority_bridge_isolated');
+ const adapter=createIsolatedMongoCreatorAuthority({db,client,publicKey,issuer,audience});
+ await adapter.operations.deleteMany({projectId:'bridge-film'});
+ await adapter.states.deleteMany({projectId:'bridge-film'});
+ const initial={projects:[{id:'bridge-film'}],durablePublicationOutbox:[]};
+ await adapter.states.insertOne({projectId:'bridge-film',ownerId:'owner-1',ownershipRevision:1,revoked:false,revision:1,state:initial});
+ const request={projectId:'bridge-film',operationId:'creator-turn-2',expectedRevision:1,authenticatedSession:jwt('owner-1'),proposedState:{projects:[{id:'bridge-film',continued:true}],durablePublicationOutbox:[]},authorityAdapter:adapter};
+ const first=await continueCreatorMemoryWithDurableAuthority(request);
+ assert.equal(first.acquired,true,JSON.stringify(first));
+ assert.equal(first.committedRevision,2);
+ const replay=await continueCreatorMemoryWithDurableAuthority(request);
+ assert.equal(replay.acquired,true,JSON.stringify(replay));
+ assert.equal(replay.serverCommitId,first.serverCommitId);
+ assert.equal(await adapter.operations.countDocuments({projectId:'bridge-film'}),1);
+ const intruder=await continueCreatorMemoryWithDurableAuthority({...request,authenticatedSession:jwt('intruder'),operationId:'intruder-turn',expectedRevision:2});
+ assert.equal(intruder.acquired,false);
+ const stale=await continueCreatorMemoryWithDurableAuthority({...request,operationId:'stale-turn'});
+ assert.equal(stale.acquired,false);
+ const outbox=await continueCreatorMemoryWithDurableAuthority({...request,operationId:'forged-outbox',expectedRevision:2,proposedState:{...request.proposedState,durablePublicationOutbox:[{forged:true}]}});
+ assert.equal(outbox.acquired,false);
+ await adapter.states.updateOne({projectId:'bridge-film'},{$set:{revoked:true}});
+ const revoked=await continueCreatorMemoryWithDurableAuthority({...request,operationId:'revoked-turn',expectedRevision:2});
+ assert.equal(revoked.acquired,false);
+ console.log('GREEN PHYSICAL_MONGO_AUTHENTICATED_FRONTEND_BOUNDARY_COMMIT_REPLAY_DENIAL');
+ console.log('HELD SAME_PROCESS_ONLY_NOT_FRESH_PROCESS_RESTART');
+ console.log('HELD REAL_CREATOR_MEMORY_FACADE_WRITER_NOT_WIRED');
+}finally{await client.close();}
