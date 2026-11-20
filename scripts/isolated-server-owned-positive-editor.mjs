@@ -6,8 +6,9 @@ export function createServerOwnedEditor({gate,db,client,publicKey}){
  const edits=db.collection('server_fenced_creator_edits');
  async function edit({token,projectId,operationId,fence,expectedRevision,content}){
   if(typeof content!=='string'||content.length>10000||!operationId||!Number.isSafeInteger(expectedRevision))return {ok:false};
-  const admission=await gate.readAdmission({token,projectId,operationId:operationId.split(':')[0],fence});
-  if(!admission)return {ok:false};
+  const admissionOperationId=operationId.split(':')[0];
+  const ownerId=authenticatedOwner(token,publicKey);
+  if(!ownerId||!admissionOperationId||admissionOperationId===operationId)return {ok:false};
   const session=client.startSession();let result={ok:false};
   try{
    await session.withTransaction(async()=>{
@@ -25,7 +26,7 @@ export function createServerOwnedEditor({gate,db,client,publicKey}){
     const last=await edits.find({projectId,fence},{session}).sort({revision:-1}).limit(1).next();
     if(last){
      if(last.revision!==expectedRevision||last.stateDigest!==digest(state.state))return;
-    }else if(admission.revision!==expectedRevision||digest(state.state)!==digest(admission.state))return;
+    }else if(admitted.revision!==expectedRevision||digest(state.state)!==digest(admitted.state))return;
     const next={...state.state,content};
     const updated=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$set:{revision:expectedRevision+1,state:next}},{session});
     if(updated.matchedCount!==1)throw Error('concurrent-editor-conflict');
