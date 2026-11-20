@@ -1,0 +1,52 @@
+name: Isolated Empty Outbox Adoption Grant Contention
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/isolated-editable-adoption-grant-authority.mjs'
+      - 'scripts/verify-editable-adoption-grant-worker.mjs'
+      - 'scripts/verify-editable-adoption-grant-orchestrator.mjs'
+      - '.github/workflows/isolated-empty-outbox-adoption-grant.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  grant-contention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/isolated_editable_adoption_grant_court?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin backend dependency source
+        run: |
+          git init backend
+          git -C backend fetch --depth=1 https://github.com/IBandbyte/iband-backend-first.git f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+          git -C backend checkout --detach FETCH_HEAD
+          test "$(git -C backend rev-parse HEAD)" = f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+      - name: Install isolated dependencies
+        working-directory: backend
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Start isolated Mongo replica set
+        run: |
+          docker run -d --name grant-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec grant-rs0 mongosh --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec grant-rs0 mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            if docker exec grant-rs0 mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Physical independent-process grant contention court
+        working-directory: backend
+        run: |
+          cp ../scripts/isolated-editable-adoption-grant-authority.mjs .
+          cp ../scripts/verify-editable-adoption-grant-worker.mjs .
+          cp ../scripts/verify-editable-adoption-grant-orchestrator.mjs .
+          node ./verify-editable-adoption-grant-orchestrator.mjs
