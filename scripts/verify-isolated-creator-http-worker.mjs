@@ -4,6 +4,8 @@ import {createPublicKey} from 'node:crypto';
 import {createWritableAdmissionGate} from './isolated-writable-admission-gate.mjs';
 import {createServerOwnedEditor} from './isolated-server-owned-positive-editor.mjs';
 import {createIsolatedCreatorHttpServer} from './isolated-creator-http-transport.mjs';
+import {createBrowserCreatorHttpAdapter} from './isolated-browser-creator-http-adapter.mjs';
+import {continueCreatorMemoryWithDurableAuthority} from './pinned-frontend-durable-creator-boundary.mjs';
 const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});await client.connect();
 const projectId='frontend-boundary-compatibility',db=client.db('frontend_boundary_compatibility_court'),publicKey=createPublicKey(process.env.PUBLIC_KEY_PEM),gate=createWritableAdmissionGate({db,client,publicKey}),editor=createServerOwnedEditor({gate,db,client,publicKey});
 const server=createIsolatedCreatorHttpServer({gate,editor,projectId,admissionOperationId:'admit1',afterCommitBeforeReply:({input})=>process.argv[2]==='socket'&&input.operationId==='admit1:socket'});
@@ -68,12 +70,23 @@ try{
   assert.equal((await gate.states.findOne({projectId})).revision,6);
   assert.equal(await editor.edits.countDocuments({projectId}),4);
   console.log('GREEN HTTP_FRESH_PROCESS_SAME_OPERATION_REPLAY_NO_DUPLICATE');
+ }else if(phase==='browser'){
+  assert.equal(canonical.revision,6);
+  const authorityAdapter=createBrowserCreatorHttpAdapter({baseUrl:url,getBearerToken:async()=>owner});
+  const proposedState={...canonical.state,content:'browser-transport-pinned-boundary-scene'};
+  const result=await continueCreatorMemoryWithDurableAuthority({projectId,operationId:'admit1:browser',expectedRevision:6,authenticatedSession:{present:true},proposedState,authorityAdapter});
+  assert.equal(result.acquired,true,JSON.stringify(result));
+  assert.equal(result.committedRevision,7);
+  assert.deepEqual(result.state,proposedState);
+  assert.equal((await gate.states.findOne({projectId})).revision,7);
+  assert.equal(await editor.edits.countDocuments({projectId}),5);
+  console.log('GREEN PINNED_FRONTEND_BOUNDARY_BROWSER_HTTP_EDIT_AND_READBACK');
  }else if(phase==='revoke'){
-  assert.equal(canonical.revision,6);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
+  assert.equal(canonical.revision,7);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
   assert.notEqual((await read(owner,'admit1:edit1')).status,200);
   assert.notEqual((await read(owner,'admit1:edit2')).status,200);
   assert.notEqual((await commit(owner,'admit1:edit3',4,{...canonical.state,content:'forbidden'})).status,200);
-  assert.equal((await gate.states.findOne({projectId})).revision,6);assert.equal(await editor.edits.countDocuments({projectId}),4);
+  assert.equal((await gate.states.findOne({projectId})).revision,7);assert.equal(await editor.edits.countDocuments({projectId}),5);
   console.log('GREEN HTTP_REVOKED_OWNER_READ_AND_EDIT_DENIED');
   console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
