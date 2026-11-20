@@ -37,5 +37,5 @@ export function createWritableAdmissionGate({db,client,publicKey}){
   if(!state||state.ownershipRevision!==a.ownershipRevision||state.activeAdoptionGrant!==a.grantId||state.activeWriterFence!==fence||hash(state.state)!==a.stateDigest||hash(state.state.durablePublicationOutbox)!==a.outboxDigest)return null;
   return {projectId,operationId,revision:a.revision,fence,state:structuredClone(state.state)};
  }
- return {states,ledger,grants,admissions,admit,readAdmission};
+ return {states,ledger,grants,admissions,admit,readAdmission,authenticateOwner:token=>subject(token,publicKey)};
 }
