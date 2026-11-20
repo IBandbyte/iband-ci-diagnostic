@@ -29,6 +29,12 @@ try{
   if(phase==='restart'){
    const previous={...proposedState,content:'creator-approved-scene-three'};
    const old=await continueCreatorMemoryWithDurableAuthority({projectId,operationId:'admit1:edit1',expectedRevision:2,authenticatedSession:{serverVerified:true},proposedState:previous,authorityAdapter:adapter});
+   if(!old.acquired){
+    const receipt=await editor.edits.findOne({projectId,operationId:'admit1:edit1'});
+    const direct=await editor.edit({token,projectId,operationId:'admit1:edit1',fence:admission.fence,expectedRevision:2,content:'creator-approved-scene-three'});
+    const directRead=await adapter.readCommitted({authenticatedSession:{serverVerified:true},projectId,operationId:'admit1:edit1'});
+    console.log('DIAGNOSTIC_HISTORICAL_REPLAY',JSON.stringify({boundaryReason:old.reason,receiptPresent:!!receipt,receiptHasCommittedState:!!receipt?.committedState,directEdit:direct,directReadPresent:!!directRead,canonicalRevision:(await gate.states.findOne({projectId})).revision}));
+   }
    assert.equal(old.acquired,true,JSON.stringify(old));
    assert.equal(old.committedRevision,3);
    const latest=await continueCreatorMemoryWithDurableAuthority({projectId,operationId:'admit1:edit2',expectedRevision:3,authenticatedSession:{serverVerified:true},proposedState,authorityAdapter:adapter});
