@@ -6,7 +6,7 @@ import {createWritableAdmissionGate} from './isolated-writable-admission-gate.mj
 import {createServerOwnedEditor} from './isolated-server-owned-positive-editor.mjs';
 const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});await client.connect();
 try{
- const db=client.db('server_positive_edit_court'),key=createPublicKey(process.env.PUBLIC_KEY_PEM),authority=createProvenanceAuthority({db,client,publicKey:key}),gate=createWritableAdmissionGate({db,client,publicKey:key}),editor=createServerOwnedEditor({gate,db,client});
+ const db=client.db('server_positive_edit_court'),key=createPublicKey(process.env.PUBLIC_KEY_PEM),authority=createProvenanceAuthority({db,client,publicKey:key}),gate=createWritableAdmissionGate({db,client,publicKey:key}),editor=createServerOwnedEditor({gate,db,client,publicKey:key});
  const projectId='film-positive-edit',token=process.env.OWNER_TOKEN,phase=process.argv[2];
  if(phase==='seed'){
   for(const coll of [authority.states,authority.ledger,authority.grants,gate.admissions,editor.edits])await coll.deleteMany({projectId});
