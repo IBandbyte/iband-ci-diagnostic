@@ -131,6 +131,38 @@
       "label": "Character voice / accent lock",
       "status": "purple",
       "description": "Future roadmap, outside Phase 01."
+    },
+    {
+      "id": "creator-memory-facade",
+      "parent": "creator-memory",
+      "label": "CreatorMemory.js facade",
+      "status": "amber",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/CreatorMemory.js",
+      "sourceSha": "c40ac260d1466c138c650a812bc89367bbdafb17",
+      "description": "Source inspected at pinned frontend head 344d98ff. Contains continuation and shared-authority replacement; full path to editable adoption remains unverified."
+    },
+    {
+      "id": "creator-boundary",
+      "parent": "creator-memory",
+      "label": "Durable creator write boundary",
+      "status": "amber",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "src/components/studio/mentor/MovieMentorDurableCreatorWriteBoundary.js",
+      "sourceSha": "9d71c84aaa069d4a7596942dfe364cdaa9e8d26c",
+      "description": "Source file inspected; scoped contract evidence is recorded separately, not blanket file certification."
+    },
+    {
+      "id": "continuation-court",
+      "parent": "creator-memory",
+      "label": "Real facade continuation verifier",
+      "status": "green",
+      "repository": "IBandbyte/Iband-frontend-first",
+      "path": "scripts/verify-real-creator-memory-server-continuation.mjs",
+      "sourceSha": "d06a73b816f2880d1432da9fffaf6dd65833f34e",
+      "sha": "344d98ff0c7e075a7e6530c8871670ad8044d220",
+      "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676",
+      "description": "Scoped isolated read-only continuation GREEN; does not certify editable restoration."
     }
   ],
   "edges": [
@@ -155,6 +187,22 @@
       "to": "editable",
       "status": "red",
       "description": "Original continuity/provenance gate unresolved."
+    },
+    {
+      "id": "facade-to-boundary",
+      "from": "creator-memory-facade",
+      "to": "creator-boundary",
+      "status": "blue",
+      "description": "Both real source files inspected; runtime path requires source-level and exact-head edge verification."
+    },
+    {
+      "id": "facade-to-continuation-court",
+      "from": "creator-memory-facade",
+      "to": "continuation-court",
+      "status": "green",
+      "evidence": "https://github.com/IBandbyte/Iband-frontend-first/actions/runs/44731427676",
+      "description": "Verifier imports real facade and exercises read-only continuation, not editable restoration."
     }
-  ]
+  ],
+  "lastMapUpdate": "2026-11-20"
 }
