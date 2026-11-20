@@ -1,0 +1,52 @@
+name: Isolated Server-Owned Nonempty Publication Provenance
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/isolated-server-publication-provenance.mjs'
+      - 'scripts/verify-server-publication-provenance-worker.mjs'
+      - 'scripts/verify-server-publication-provenance-orchestrator.mjs'
+      - '.github/workflows/isolated-server-publication-provenance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  positive-server-provenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/server_provenance_positive_court?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin backend source
+        run: |
+          git init backend
+          git -C backend fetch --depth=1 https://github.com/IBandbyte/iband-backend-first.git f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+          git -C backend checkout --detach FETCH_HEAD
+          test "$(git -C backend rev-parse HEAD)" = f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+      - name: Install isolated dependency
+        working-directory: backend
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Start isolated Mongo replica set
+        run: |
+          docker run -d --name server-provenance-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec server-provenance-rs0 mongosh --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec server-provenance-rs0 mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            if docker exec server-provenance-rs0 mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Three-process positive server publication provenance court
+        working-directory: backend
+        run: |
+          cp ../scripts/isolated-server-publication-provenance.mjs .
+          cp ../scripts/verify-server-publication-provenance-worker.mjs .
+          cp ../scripts/verify-server-publication-provenance-orchestrator.mjs .
+          node ./verify-server-publication-provenance-orchestrator.mjs
