@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign,createPublicKey} from 'node:crypto';
+import {MongoClient} from 'mongodb';
+import {createGrantAuthority} from './isolated-editable-adoption-grant-authority.mjs';
+const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const now=Math.floor(Date.now()/1000),b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+const jwt=sub=>{const d=`${b64({alg:'RS256',typ:'JWT'})}.${b64({iss:'https://isolated-auth.test',aud:'movie-mentor-creator-write',sub,iat:now,nbf:now-1,exp:now+300})}`;return d+'.'+sign('RSA-SHA256',Buffer.from(d),privateKey).toString('base64url')};
+const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});
+await client.connect();
+try{
+ const db=client.db('isolated_nonempty_provenance_denial');
+ const a=createGrantAuthority({db,client,publicKey:createPublicKey(publicKey.export({type:'spki',format:'pem'}))});
+ const owner=jwt('owner-1'),projectId='nonempty-provenance-film';
+ await a.states.deleteMany({projectId});await a.grants.deleteMany({projectId});
+ const fake={id:'forged',status:'pending',committedStateVersion:1,snapshotDigest:'0'.repeat(32)};
+ await a.states.insertOne({projectId,ownerId:'owner-1',ownershipRevision:1,revoked:false,revision:1,state:{durablePublicationOutbox:[fake],content:'scene'}});
+ assert.equal(await a.issue({token:owner,projectId,revision:1}),null,'Nonempty outbox must fail closed without independent server provenance');
+ assert.equal(await a.grants.countDocuments({projectId}),0);
+ console.log('GREEN NONEMPTY_OUTBOX_WITHOUT_PROVENANCE_CANNOT_ISSUE_GRANT');
+ await a.states.updateOne({projectId},{$set:{'state.durablePublicationOutbox':[]}});
+ const grant=await a.issue({token:owner,projectId,revision:1});assert.ok(grant);
+ await a.states.updateOne({projectId},{$set:{'state.durablePublicationOutbox':[fake]}});
+ const denied=await a.consume({token:owner,projectId,grantId:grant.grantId});
+ assert.equal(denied.acquired,false,'Outbox tamper after grant must deny');
+ assert.equal(await a.grants.countDocuments({projectId,status:'consumed'}),0);
+ assert.equal((await a.states.findOne({projectId})).activeAdoptionGrant,undefined);
+ console.log('GREEN OUTBOX_MUTATION_AFTER_ISSUANCE_CANNOT_CONSUME_GRANT');
+ await a.states.updateOne({projectId},{$set:{'state.durablePublicationOutbox':[]}});
+ await a.states.updateOne({projectId},{$inc:{ownershipRevision:1}});
+ const stale=await a.consume({token:owner,projectId,grantId:grant.grantId});
+ assert.equal(stale.acquired,false,'Ownership revision fence must deny');
+ console.log('GREEN OWNERSHIP_REVISION_CHANGE_DENIES_GRANT');
+ console.log('HELD SERVER_PROVENANCED_NONEMPTY_OUTBOX_POSITIVE_AND_ORIGINAL_FRONTEND_RED');
+}finally{await client.close()}
