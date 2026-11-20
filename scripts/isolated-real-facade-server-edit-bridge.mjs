@@ -15,7 +15,10 @@ export async function editThroughServerWithRealFacade({
  if(!receipt.ok)return Object.freeze({ok:false,reason:'server-edit-denied'});
  // Server receipt is the only write confirmation. The real facade is deliberately
  // NOT rebased, as its process-local publication witness cannot be fabricated.
- const canonical=await gate.states.findOne({projectId,revision:receipt.revision,activeWriterFence:fence,revoked:false});
+ const canonical=await gate.states.findOne({projectId,activeWriterFence:fence,revoked:false});
+ // Historical replay acknowledges its original revision while readback remains
+ // the latest canonical state. Never rewind the film to an earlier receipt.
+ if(canonical&&canonical.revision<receipt.revision)return Object.freeze({ok:false,reason:'canonical-revision-behind-receipt'});
  if(!canonical)return Object.freeze({ok:false,reason:'canonical-readback-unavailable'});
- return Object.freeze({ok:true,revision:receipt.revision,replay:receipt.replay,restorationMode:'server-authoritative-edit',localStateAdopted:false,localFacadeWritable:false,state:structuredClone(canonical.state)});
+ return Object.freeze({ok:true,revision:receipt.revision,canonicalRevision:canonical.revision,replay:receipt.replay,restorationMode:'server-authoritative-edit',localStateAdopted:false,localFacadeWritable:false,state:structuredClone(canonical.state)});
 }
