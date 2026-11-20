@@ -1,7 +1,8 @@
 // Isolated Mongo positive editor; never wired to application or browser local storage.
-import {createHash} from 'node:crypto';
+import {createHash,verify} from 'node:crypto';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function createServerOwnedEditor({gate,db,client}){
+function authenticatedOwner(token,key){try{const parts=token.split('.');if(parts.length!==3)return null;const h=JSON.parse(Buffer.from(parts[0],'base64url')),p=JSON.parse(Buffer.from(parts[1],'base64url')),now=Math.floor(Date.now()/1000);return h.alg==='RS256'&&h.typ==='JWT'&&p.iss==='https://isolated-auth.test'&&p.aud==='movie-mentor-creator-write'&&typeof p.sub==='string'&&p.sub&&Number.isInteger(p.iat)&&p.iat<=now&&Number.isInteger(p.nbf)&&p.nbf<=now&&Number.isInteger(p.exp)&&p.exp>now&&verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),key,Buffer.from(parts[2],'base64url'))?p.sub:null}catch{return null}}
+export function createServerOwnedEditor({gate,db,client,publicKey}){
  const edits=db.collection('server_fenced_creator_edits');
  async function edit({token,projectId,operationId,fence,expectedRevision,content}){
   if(typeof content!=='string'||content.length>10000||!operationId||!Number.isSafeInteger(expectedRevision))return {ok:false};
@@ -12,11 +13,15 @@ export function createServerOwnedEditor({gate,db,client}){
    await session.withTransaction(async()=>{
     const prior=await edits.findOne({projectId,operationId},{session});
     if(prior){
-     if(prior.fence===fence&&prior.expectedRevision===expectedRevision&&prior.contentDigest===digest(content)&&prior.admissionOperationId===operationId.split(':')[0])result={ok:true,replay:true,revision:prior.revision};
+     const canonical=await gate.states.findOne({projectId,ownerId,revoked:false,activeWriterFence:fence,activeAdoptionGrant:{$exists:true}},{session});
+     const admission=await gate.admissions.findOne({projectId,ownerId,operationId:admissionOperationId,fence,status:'admitted'},{session});
+     if(canonical&&admission&&prior.ownerId===ownerId&&prior.ownershipRevision===canonical.ownershipRevision&&prior.fence===fence&&prior.expectedRevision===expectedRevision&&prior.contentDigest===digest(content)&&prior.admissionOperationId===admissionOperationId&&canonical.revision===prior.revision&&digest(canonical.state)===prior.stateDigest)result={ok:true,replay:true,revision:prior.revision};
      return;
     }
+    const admitted=await gate.readAdmission({token,projectId,operationId:admissionOperationId,fence});
+    if(!admitted)return;
     const state=await gate.states.findOne({projectId,revision:expectedRevision,activeWriterFence:fence,activeAdoptionGrant:{$exists:true},revoked:false},{session});
-    if(!state||state.ownerId!== (await gate.admissions.findOne({projectId,operationId:operationId.split(':')[0],fence,status:'admitted'},{session}))?.ownerId)return;
+    if(!state||state.ownerId!==ownerId||state.ownerId!== (await gate.admissions.findOne({projectId,operationId:admissionOperationId,fence,status:'admitted'},{session}))?.ownerId)return;
     const last=await edits.find({projectId,fence},{session}).sort({revision:-1}).limit(1).next();
     if(last){
      if(last.revision!==expectedRevision||last.stateDigest!==digest(state.state))return;
