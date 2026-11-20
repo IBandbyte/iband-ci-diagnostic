@@ -6,7 +6,7 @@ import {createServerOwnedEditor} from './isolated-server-owned-positive-editor.m
 import {createIsolatedCreatorHttpServer} from './isolated-creator-http-transport.mjs';
 const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});await client.connect();
 const projectId='frontend-boundary-compatibility',db=client.db('frontend_boundary_compatibility_court'),publicKey=createPublicKey(process.env.PUBLIC_KEY_PEM),gate=createWritableAdmissionGate({db,client,publicKey}),editor=createServerOwnedEditor({gate,db,client,publicKey});
-const server=createIsolatedCreatorHttpServer({gate,editor,projectId,admissionOperationId:'admit1'});
+const server=createIsolatedCreatorHttpServer({gate,editor,projectId,admissionOperationId:'admit1',afterCommitBeforeReply:({input})=>process.argv[2]==='socket'&&input.operationId==='admit1:socket'});
 try{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const url='http://127.0.0.1:'+server.address().port;
@@ -46,12 +46,34 @@ try{
   assert.equal((await gate.states.findOne({projectId})).revision,5);
   assert.equal(await editor.edits.countDocuments({projectId}),3);
   console.log('GREEN HTTP_TWO_CONCURRENT_WRITERS_EXACTLY_ONE_WINNER');
+ }else if(phase==='socket'){
+  assert.equal(canonical.revision,5);
+  const proposedState={...canonical.state,content:'durable-after-lost-http-response'};
+  let interrupted=false;
+  try{await commit(owner,'admit1:socket',5,proposedState)}catch{interrupted=true}
+  assert.equal(interrupted,true,'HTTP response must be lost after durable commit');
+  const stored=await gate.states.findOne({projectId});assert.equal(stored.revision,6);
+  assert.equal(stored.state.content,proposedState.content);
+  assert.equal(await editor.edits.countDocuments({projectId}),4);
+  console.log('GREEN HTTP_POST_COMMIT_SOCKET_LOSS_DURABLE_EFFECT');
+ }else if(phase==='socket-recover'){
+  assert.equal(canonical.revision,6);
+  const receipt=await read(owner,'admit1:socket');assert.equal(receipt.status,200,JSON.stringify(receipt));
+  assert.equal(receipt.data.committedRevision,6);
+  const original=await editor.edits.findOne({projectId,operationId:'admit1:socket'});
+  assert.ok(original);
+  const replay=await commit(owner,'admit1:socket',5,original.committedState);
+  assert.equal(replay.status,200,JSON.stringify(replay));
+  assert.equal(replay.data.serverCommitId,receipt.data.serverCommitId);
+  assert.equal((await gate.states.findOne({projectId})).revision,6);
+  assert.equal(await editor.edits.countDocuments({projectId}),4);
+  console.log('GREEN HTTP_FRESH_PROCESS_SAME_OPERATION_REPLAY_NO_DUPLICATE');
  }else if(phase==='revoke'){
-  assert.equal(canonical.revision,5);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
+  assert.equal(canonical.revision,6);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
   assert.notEqual((await read(owner,'admit1:edit1')).status,200);
   assert.notEqual((await read(owner,'admit1:edit2')).status,200);
   assert.notEqual((await commit(owner,'admit1:edit3',4,{...canonical.state,content:'forbidden'})).status,200);
-  assert.equal((await gate.states.findOne({projectId})).revision,5);assert.equal(await editor.edits.countDocuments({projectId}),3);
+  assert.equal((await gate.states.findOne({projectId})).revision,6);assert.equal(await editor.edits.countDocuments({projectId}),4);
   console.log('GREEN HTTP_REVOKED_OWNER_READ_AND_EDIT_DENIED');
   console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
