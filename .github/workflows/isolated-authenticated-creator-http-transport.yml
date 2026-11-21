@@ -17,6 +17,7 @@ on:
       - 'scripts/verify-pinned-real-handler-server-authority-facade.mjs'
       - 'scripts/verify-pinned-creator-workspace-wiring-candidate.mjs'
       - 'scripts/verify-pinned-react-creator-workspace-mount.mjs'
+      - 'scripts/verify-pinned-react-conversation-candidate.mjs'
       - 'scripts/isolated-studio-server-authority-adapter.mjs'
       - 'scripts/verify-isolated-studio-server-authority-adapter.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
@@ -84,6 +85,8 @@ jobs:
         run: npm install --prefix frontend --no-package-lock --ignore-scripts --no-audit --no-fund
       - name: Mount exact pinned React Creator Workspace in isolated Chromium
         run: node scripts/verify-pinned-react-creator-workspace-mount.mjs
+      - name: Verify disposable pinned React conversation wiring candidate in Chromium
+        run: node scripts/verify-pinned-react-conversation-candidate.mjs
       - name: Start isolated Mongo replica set
         run: |
           docker run -d --name facade-provenance-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
