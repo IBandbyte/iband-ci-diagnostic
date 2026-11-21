@@ -32,6 +32,8 @@ on:
       - 'scripts/verify-integrated-react-sigkill-server.mjs'
       - 'scripts/verify-integrated-react-sigkill-browser.mjs'
       - 'scripts/verify-integrated-react-sigkill-orchestrator.mjs'
+      - 'scripts/isolated-real-react-handler-migration-candidate.mjs'
+      - 'scripts/verify-real-react-handler-migration-candidate.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -76,6 +78,8 @@ jobs:
         run: node scripts/verify-pinned-real-handler-server-authority-facade.mjs
       - name: Verify pinned Creator Workspace in-memory authority wiring candidate
         run: node scripts/verify-pinned-creator-workspace-wiring-candidate.mjs
+      - name: Verify isolated pinned real React handler migration candidate
+        run: node scripts/verify-real-react-handler-migration-candidate.mjs
       - name: Pin backend dependency
         run: |
           git init backend
