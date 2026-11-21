@@ -4,8 +4,8 @@ import {validateConversationSettlement} from './isolated-conversation-settlement
 const phase=process.argv[2],client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:10000});
 const input={projectId:'kill-court-project',operationId:'kill-operation',creatorTurnId:'kill-turn',expectedRevision:0,creatorMessage:{id:'kill-turn',role:'creator',text:'Durable creator text'},mentorMessage:{id:'kill-mentor',role:'mentor',text:'Durable mentor text',metadata:{backendMetadata:{creatorTurnId:'kill-turn'}}}};
 await client.connect();
-const db=client.db('isolated_conversation_sigkill_court'),projects=db.collection('projects'),receipts=db.collection('receipts');
-if(phase==='seed'){
+const db=client.db(['seed-post','after-commit','recover'].includes(phase)?'isolated_conversation_sigkill_postcommit_court':'isolated_conversation_sigkill_precommit_court'),projects=db.collection('projects'),receipts=db.collection('receipts');
+if(phase==='seed'||phase==='seed-post'){
  await projects.deleteMany({});await receipts.deleteMany({});
  await projects.insertOne({_id:input.projectId,ownerId:'owner-1',revision:0,conversation:[]});
  await receipts.createIndex({projectId:1,operationId:1},{unique:true});
