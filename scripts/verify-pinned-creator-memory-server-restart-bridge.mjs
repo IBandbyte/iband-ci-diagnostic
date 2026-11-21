@@ -25,7 +25,17 @@ const projectId='real-facade-bridge-film',operationId='real-facade-next-scene';
 const scene={id:'scene-two',text:'Continue after secure restart'};
 const local=createMemoryStorageAdapter();
 const memory=createCreatorMemory({storageAdapter:local,requireSharedWriteAuthority:true});
-const localBefore=structuredClone(memory.readPersistedState());
+// An empty unpersisted CreatorMemory constructs fresh default timestamps on
+// every read. Those timestamps are not durable bytes or publication authority.
+function stableDefaultSnapshot(value){
+ const copy=structuredClone(value);
+ delete copy.journey?.firstSeenAt;
+ delete copy.journey?.lastSeenAt;
+ delete copy.metadata?.createdAt;
+ delete copy.metadata?.updatedAt;
+ return copy;
+}
+const localBefore=stableDefaultSnapshot(memory.readPersistedState());
 const storageBefore=local.getItem('iband.creator-memory');
 try{
  await Promise.all([
@@ -70,7 +80,7 @@ try{
  assert.equal(result.restorationMode,'server-read-only');
  assert.equal(result.localStateAdopted,false);
  assert.deepEqual(result.state,proposedState);
- assert.deepEqual(memory.readPersistedState(),localBefore);
+ assert.deepEqual(stableDefaultSnapshot(memory.readPersistedState()),localBefore);
  assert.equal(local.getItem('iband.creator-memory'),storageBefore);
  console.log('GREEN PINNED_CREATOR_MEMORY_REAL_SERVER_AUTHORITY_POSITIVE_READ_ONLY_CONTINUATION');
  console.log('GREEN PINNED_CREATOR_MEMORY_NO_LOCAL_OUTBOX_REBASE_OR_PERSISTENCE_WRITE');
@@ -82,7 +92,7 @@ try{
  });
  assert.equal(unknown.acquired,false);
  assert.equal(unknown.reason,'durable-commit-unverified');
- assert.deepEqual(memory.readPersistedState(),localBefore);
+ assert.deepEqual(stableDefaultSnapshot(memory.readPersistedState()),localBefore);
  const deniedRead=await authority.read({token:intruderToken,projectId});
  assert.equal(deniedRead.status,'denied');
  assert.equal(await authority.effects.countDocuments({projectId}),1);
