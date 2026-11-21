@@ -1,0 +1,39 @@
+name: Isolated Real Creator Browser Smoke
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/isolated-real-ui-browser-entry.jsx'
+      - 'scripts/verify-isolated-real-ui-browser.mjs'
+      - '.github/workflows/isolated-real-creator-browser-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-pinned-ui-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin real frontend source
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
+      - name: Install isolated browser dependencies
+        working-directory: frontend
+        run: |
+          npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+      - name: Run pinned real UI rendered browser smoke
+        working-directory: frontend
+        run: |
+          cp ../scripts/isolated-real-ui-browser-entry.jsx ./isolated-real-ui-browser-entry.jsx
+          cp ../scripts/verify-isolated-real-ui-browser.mjs ./verify-isolated-real-ui-browser.mjs
+          printf '<!doctype html><html><body><div id="root"></div><script type="module" src="/isolated-real-ui-browser-entry.jsx"></script></body></html>' > isolated-real-ui.html
+          node ./verify-isolated-real-ui-browser.mjs
