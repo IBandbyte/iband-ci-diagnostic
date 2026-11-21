@@ -14,6 +14,8 @@ on:
       - 'scripts/verify-isolated-studio-conversation-authority.mjs'
       - 'scripts/verify-pinned-studio-conversation-authority-gap.mjs'
       - 'scripts/verify-pinned-real-studio-handler-behavior.mjs'
+      - 'scripts/isolated-studio-server-authority-adapter.mjs'
+      - 'scripts/verify-isolated-studio-server-authority-adapter.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-orchestrator.mjs'
       - 'scripts/verify-isolated-physical-conversation-settlement.mjs'
@@ -45,6 +47,8 @@ jobs:
         run: node scripts/verify-isolated-conversation-settlement-contract.mjs
       - name: Verify isolated fail-closed studio authority seam
         run: node scripts/verify-isolated-studio-conversation-authority.mjs
+      - name: Verify isolated Studio server authority adapter
+        run: node scripts/verify-isolated-studio-server-authority-adapter.mjs
       - name: Pin frontend source
         run: |
           git init frontend
