@@ -29,6 +29,9 @@ on:
       - 'scripts/verify-isolated-react-atomic-http-orchestrator.mjs'
       - 'scripts/verify-isolated-atomic-react-ui-worker.mjs'
       - 'scripts/verify-isolated-atomic-react-ui-orchestrator.mjs'
+      - 'scripts/verify-integrated-react-sigkill-server.mjs'
+      - 'scripts/verify-integrated-react-sigkill-browser.mjs'
+      - 'scripts/verify-integrated-react-sigkill-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -138,3 +141,7 @@ jobs:
           cp ../scripts/verify-isolated-atomic-react-ui-worker.mjs .
           cp ../scripts/verify-isolated-atomic-react-ui-orchestrator.mjs .
           node ./verify-isolated-atomic-react-ui-orchestrator.mjs
+          cp ../scripts/verify-integrated-react-sigkill-server.mjs .
+          cp ../scripts/verify-integrated-react-sigkill-browser.mjs .
+          cp ../scripts/verify-integrated-react-sigkill-orchestrator.mjs .
+          node ./verify-integrated-react-sigkill-orchestrator.mjs
