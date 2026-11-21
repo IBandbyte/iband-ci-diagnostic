@@ -38,8 +38,8 @@ try{
  assert.deepEqual(pageErrors,[],'real pinned component must mount without uncaught error');
  console.log('GREEN PINNED_REAL_REACT_CREATOR_WORKSPACE_CHROMIUM_MOUNT');
  const source=await (await import('node:fs/promises')).readFile(root+'/src/components/studio/CreatorWorkspace.jsx','utf8');
- assert.match(source,/identityRuntime\\s*\\.settleConversationMessage/);
- assert.match(source,/identityRuntime\\.recordPendingCreatorMessage/);
+ assert.match(source,/identityRuntime\s*\.settleConversationMessage/);
+ assert.match(source,/identityRuntime\.recordPendingCreatorMessage/);
  console.log('GREEN REAL_REACT_STUDIO_LEGACY_CONVERSATION_CALLS_IDENTIFIED');
  console.log('HELD REAL_REACT_STUDIO_AUTHENTICATED_CONVERSATION_WIRING_AND_ORIGINAL_FRONTEND_RED');
  await page.close();
