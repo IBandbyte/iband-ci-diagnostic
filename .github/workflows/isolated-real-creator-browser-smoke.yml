@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/isolated-real-ui-browser-entry.jsx'
       - 'scripts/verify-isolated-real-ui-browser.mjs'
+      - 'scripts/isolated-browser-auth-transport-probe.mjs'
+      - 'scripts/isolated-browser-creator-http-adapter.mjs'
       - '.github/workflows/isolated-real-creator-browser-smoke.yml'
   workflow_dispatch:
 permissions:
@@ -35,5 +37,7 @@ jobs:
         run: |
           cp ../scripts/isolated-real-ui-browser-entry.jsx ./isolated-real-ui-browser-entry.jsx
           cp ../scripts/verify-isolated-real-ui-browser.mjs ./verify-isolated-real-ui-browser.mjs
+          cp ../scripts/isolated-browser-auth-transport-probe.mjs ./isolated-browser-auth-transport-probe.mjs
+          cp ../scripts/isolated-browser-creator-http-adapter.mjs ./isolated-browser-creator-http-adapter.mjs
           printf '<!doctype html><html><body><div id="root"></div><script type="module" src="/isolated-real-ui-browser-entry.jsx"></script></body></html>' > isolated-real-ui.html
           node ./verify-isolated-real-ui-browser.mjs
