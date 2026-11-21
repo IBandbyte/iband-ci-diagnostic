@@ -23,4 +23,15 @@ resolveRead({projectId:'p',revision:1,conversation:[]});
 assert.equal((await inflight).status,'stale-local-change');
 assert.equal(publications.length,1);
 console.log('GREEN STUDIO_ADAPTER_CONCURRENT_LOCAL_CHANGE_FENCES_RECOVERY');
+const revisions=[3,2];const rollbackPublications=[];
+const rollbackAdapter=createStudioServerAuthorityAdapter({
+ settle:async()=>null,
+ readConfirmed:async()=>({projectId:'rollback-project',revision:revisions.shift(),conversation:[]}),
+ publishConfirmed:async recovered=>rollbackPublications.push(recovered)
+});
+assert.equal((await rollbackAdapter.restore('rollback-project')).published,true);
+const rollback=await rollbackAdapter.restore('rollback-project');
+assert.equal(rollback.published,false,'older confirmed read must not overwrite newer confirmed projection');
+assert.equal(rollbackPublications.length,1);
+console.log('GREEN STUDIO_ADAPTER_OLDER_SERVER_REVISION_CANNOT_ROLL_BACK_CONFIRMED_UI');
 console.log('HELD REAL_CREATOR_WORKSPACE_WIRING_AND_ORIGINAL_FRONTEND_RED');
