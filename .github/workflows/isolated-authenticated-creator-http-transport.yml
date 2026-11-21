@@ -10,6 +10,7 @@ on:
       - 'scripts/isolated-frontend-continuation-compatibility.mjs'
       - 'scripts/isolated-creator-http-transport.mjs'
       - 'scripts/isolated-browser-creator-http-adapter.mjs'
+      - 'scripts/verify-pinned-studio-conversation-authority-gap.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-orchestrator.mjs'
       - 'scripts/verify-isolated-physical-conversation-settlement.mjs'
@@ -45,6 +46,8 @@ jobs:
           git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
           git -C frontend checkout --detach FETCH_HEAD
           test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
+      - name: Audit pinned real studio conversation authority gap
+        run: node scripts/verify-pinned-studio-conversation-authority-gap.mjs
       - name: Pin backend dependency
         run: |
           git init backend
