@@ -37,6 +37,9 @@ on:
       - 'scripts/verify-migrated-real-handler-physical-worker.mjs'
       - 'scripts/verify-migrated-real-handler-physical-orchestrator.mjs'
       - 'scripts/verify-original-frontend-publication-red-control.mjs'
+      - 'scripts/isolated-server-restart-continuation-authority.mjs'
+      - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
+      - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -160,3 +163,8 @@ jobs:
           cp ../scripts/verify-migrated-real-handler-physical-worker.mjs .
           cp ../scripts/verify-migrated-real-handler-physical-orchestrator.mjs .
           node ./verify-migrated-real-handler-physical-orchestrator.mjs
+          cp ../scripts/isolated-server-publication-provenance.mjs .
+          cp ../scripts/isolated-server-restart-continuation-authority.mjs .
+          cp ../scripts/verify-isolated-server-restart-positive-worker.mjs .
+          cp ../scripts/verify-isolated-server-restart-positive-orchestrator.mjs .
+          node ./verify-isolated-server-restart-positive-orchestrator.mjs
