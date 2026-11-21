@@ -14,6 +14,7 @@ on:
       - 'scripts/verify-isolated-studio-conversation-authority.mjs'
       - 'scripts/verify-pinned-studio-conversation-authority-gap.mjs'
       - 'scripts/verify-pinned-real-studio-handler-behavior.mjs'
+      - 'scripts/verify-pinned-real-handler-server-authority-facade.mjs'
       - 'scripts/isolated-studio-server-authority-adapter.mjs'
       - 'scripts/verify-isolated-studio-server-authority-adapter.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
@@ -59,6 +60,8 @@ jobs:
         run: node scripts/verify-pinned-studio-conversation-authority-gap.mjs
       - name: Execute pinned real Studio handler characterization
         run: node scripts/verify-pinned-real-studio-handler-behavior.mjs
+      - name: Verify pinned real handler with isolated server authority facade
+        run: node scripts/verify-pinned-real-handler-server-authority-facade.mjs
       - name: Pin backend dependency
         run: |
           git init backend
