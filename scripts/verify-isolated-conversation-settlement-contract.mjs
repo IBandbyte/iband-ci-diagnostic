@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {validateConversationSettlement,classifySettlementOutcome} from './isolated-conversation-settlement-contract.mjs';
+const base={projectId:'p',operationId:'p:turn-1',creatorTurnId:'turn-1',expectedRevision:3,creatorMessage:{id:'turn-1',role:'creator',text:'A new scene'},mentorMessage:{id:'mentor-1',role:'mentor',text:'Let us build it',metadata:{backendMetadata:{creatorTurnId:'turn-1'}}}};
+assert.equal(validateConversationSettlement(base).creatorTurnId,'turn-1');
+console.log('GREEN CONVERSATION_SETTLEMENT_MATCHED_TURN_CONTRACT');
+for(const bad of [{...base,creatorTurnId:'forged'}, {...base,expectedRevision:-1},{...base,creatorMessage:{...base.creatorMessage,id:'other'}},{...base,mentorMessage:{...base.mentorMessage,metadata:{backendMetadata:{creatorTurnId:'other'}}}}])assert.throws(()=>validateConversationSettlement(bad));
+console.log('GREEN CONVERSATION_SETTLEMENT_FORGED_TURN_AND_REVISION_DENIED');
+assert.deepEqual(classifySettlementOutcome({receipt:null,operationId:base.operationId,creatorTurnId:base.creatorTurnId}),{status:'unknown',retirePending:false});
+console.log('GREEN CONVERSATION_SETTLEMENT_UNKNOWN_KEEPS_PENDING');
+const receipt={operationId:base.operationId,creatorTurnId:base.creatorTurnId,serverCommitId:'server-receipt',committedRevision:4};
+assert.equal(classifySettlementOutcome({receipt,operationId:base.operationId,creatorTurnId:base.creatorTurnId}).retirePending,true);
+assert.throws(()=>classifySettlementOutcome({receipt:{...receipt,operationId:'other'},operationId:base.operationId,creatorTurnId:base.creatorTurnId}));
+console.log('GREEN CONVERSATION_SETTLEMENT_RECEIPT_IDENTITY_BOUND');
+console.log('HELD PHYSICAL_MONGO_SETTLEMENT_AND_REAL_UI_WIRING');
