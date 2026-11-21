@@ -2,7 +2,7 @@
 // Produces a full-file candidate in memory; never edits either application's repository.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-export const handlerPattern=/const handleMovieMessage = \\(message\\) => \\{([\\s\\S]*?)\\n  \\};/;
+export const handlerPattern=/const handleMovieMessage = \(message\) => \{([\s\S]*?)\n  \};/;
 export const replacement=`const handleMovieMessage = (message) => {
     const projectId = activeMovieProject?.id;
     if (!projectId || !message?.id) return;
@@ -45,7 +45,7 @@ export function transformPinnedCreatorWorkspace(source) {
  assert.match(matches[0][0],/recordPendingCreatorMessage/);
  assert.match(matches[0][0],/settleConversationMessage/);
  const fullFile=source.replace(matches[0][0],replacement);
- assert.equal((fullFile.match(/const handleMovieMessage = \\(message\\) =>/g)||[]).length,1);
+ assert.equal((fullFile.match(/const handleMovieMessage = \(message\) =>/g)||[]).length,1);
  assert.equal(fullFile.includes(matches[0][0]),false);
  assert.doesNotMatch(fullFile.match(handlerPattern)[0],/recordPendingCreatorMessage|settleConversationMessage/);
  return fullFile;
