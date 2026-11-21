@@ -43,6 +43,8 @@ on:
       - 'scripts/verify-pinned-creator-memory-server-restart-bridge.mjs'
       - 'scripts/verify-pinned-creator-memory-fenced-writable-worker.mjs'
       - 'scripts/verify-pinned-creator-memory-fenced-writable-orchestrator.mjs'
+      - 'scripts/isolated-real-studio-lifecycle-handoff.mjs'
+      - 'scripts/verify-isolated-real-studio-lifecycle-handoff.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -79,6 +81,8 @@ jobs:
           git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
           git -C frontend checkout --detach FETCH_HEAD
           test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
+      - name: Verify isolated exact-source Studio lifecycle handoff contract
+        run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Audit pinned real studio conversation authority gap
         run: node scripts/verify-pinned-studio-conversation-authority-gap.mjs
       - name: Execute pinned real Studio handler characterization
