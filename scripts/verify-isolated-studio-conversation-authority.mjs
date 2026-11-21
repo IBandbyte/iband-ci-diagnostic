@@ -3,7 +3,7 @@ import {createStudioConversationAuthority} from './isolated-studio-conversation-
 const input={projectId:'p',operationId:'op',creatorTurnId:'t',expectedRevision:0,creatorMessage:{id:'t',role:'creator',text:'Scene'},mentorMessage:{id:'m',role:'mentor',text:'Ready',metadata:{backendMetadata:{creatorTurnId:'t'}}}};
 const gate=createStudioConversationAuthority({settle:async()=>null,readConfirmed:async()=>({projectId:'p',revision:0,conversation:[]})});
 assert.deepEqual(gate.stage(input),{status:'pending',durable:false});assert.equal(gate.hasPending('p','t'),true);
-assert.deepEqual(await gate.confirm('p','t'),{status:'unknown',durable:false});assert.equal(gate.hasPending('p','t'),true);
+assert.deepEqual(await gate.confirm('p','t'),{status:'unknown',retirePending:false,durable:false});assert.equal(gate.hasPending('p','t'),true);
 console.log('GREEN STUDIO_GATE_UNKNOWN_RESULT_RETAINS_PENDING');
 assert.throws(()=>gate.stage({...input,mentorMessage:{...input.mentorMessage,text:'forged'}}),/pending-turn-conflict/);
 console.log('GREEN STUDIO_GATE_CONFLICTING_PENDING_TURN_DENIED');
