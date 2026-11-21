@@ -49,6 +49,8 @@ on:
       - 'scripts/verify-physical-pinned-studio-lifecycle-orchestrator.mjs'
       - 'scripts/isolated-studio-real-handler-adoption-candidate.mjs'
       - 'scripts/verify-isolated-studio-real-handler-adoption.mjs'
+      - 'scripts/verify-physical-adopted-studio-handler-worker.mjs'
+      - 'scripts/verify-physical-adopted-studio-handler-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -190,3 +192,7 @@ jobs:
           cp ../scripts/verify-physical-pinned-studio-lifecycle-worker.mjs .
           cp ../scripts/verify-physical-pinned-studio-lifecycle-orchestrator.mjs .
           node ./verify-physical-pinned-studio-lifecycle-orchestrator.mjs
+          cp ../scripts/isolated-studio-real-handler-adoption-candidate.mjs .
+          cp ../scripts/verify-physical-adopted-studio-handler-worker.mjs .
+          cp ../scripts/verify-physical-adopted-studio-handler-orchestrator.mjs .
+          node ./verify-physical-adopted-studio-handler-orchestrator.mjs
