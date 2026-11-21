@@ -22,14 +22,24 @@ export function createRestartContinuationAuthority({db,client,publicKey}){
    await session.withTransaction(async()=>{
     const g=await grants.findOne({grantId,projectId,ownerId:owner,status:'consumed'},{session});
     if(!g||g.revision!==expectedRevision)return;
-    const state=await states.findOne({projectId,ownerId:owner,revoked:false,ownershipRevision:g.ownershipRevision,activeAdoptionGrant:grantId},{session});
+    // Replay is resolved against the durable effect, not an active grant:
+    // the original successful commit deliberately consumes and clears that grant.
+    // Current ownership and non-revocation are still mandatory for replay.
+    const state=await states.findOne({projectId,ownerId:owner,revoked:false,ownershipRevision:g.ownershipRevision},{session});
     if(!state)return;
     const previous=await effects.findOne({projectId,operationId},{session});
     if(previous){
-     if(previous.ownerId===owner&&previous.grantId===grantId&&previous.expectedRevision===expectedRevision&&hash(previous.nextScene)===hash(nextScene)){outcome={status:'replayed',receipt:previous.receipt};}
+     if(previous.ownerId===owner&&previous.grantId===grantId&&
+        previous.expectedRevision===expectedRevision&&
+        hash(previous.nextScene)===hash(nextScene)&&
+        previous.receipt?.committedRevision===expectedRevision+1&&
+        state.revision>=previous.receipt.committedRevision&&
+        (state.state?.content?.scenes||[]).some(scene=>hash(scene)===hash(nextScene))){
+       outcome={status:'replayed',receipt:previous.receipt};
+     }
      return;
     }
-    if(state.revision!==expectedRevision)return;
+    if(state.activeAdoptionGrant!==grantId||state.revision!==expectedRevision)return;
     if(hash(state.state)!==g.stateDigest||hash(state.state.durablePublicationOutbox)!==g.outboxDigest)return;
     const list=await ledger.find({projectId,ownerId:owner,ownershipRevision:g.ownershipRevision,revision:{$lte:expectedRevision}},{session}).sort({revision:1}).toArray();
     if(list.length!==state.state.durablePublicationOutbox.length||list.some((e,i)=>hash(e.entry)!==hash(state.state.durablePublicationOutbox[i]))||list.at(-1)?.stateDigest!==g.stateDigest)return;
