@@ -30,7 +30,7 @@ const handler=new Function('setMovieMessages','activeMovieProject','projectJourn
  value=>{status=value},value=>{notice=value},{error:()=>{}}
 );
 handler({id:creatorTurnId,role:'creator',text:'Scene'});
-handler({id:'mentor-1',role:'mentor',text:'Ready'});
+handler({id:'mentor-1',role:'mentor',text:'Ready',metadata:{backendMetadata:{creatorTurnId}}});
 await new Promise(resolve=>setImmediate(resolve));
 assert.equal(adapter.hasPending(projectId,creatorTurnId),true);
 assert.equal((await adapter.restore(projectId)).status,'blocked-pending');
