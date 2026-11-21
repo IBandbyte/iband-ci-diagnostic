@@ -19,7 +19,9 @@ patched=patched.replace(initializer,'const [activeMovieProject, setActiveMoviePr
 const injected='<section aria-label="Diagnostic React conversation"><button onClick={()=>handleMovieMessage({id:"creator-1",role:"creator",text:"Ocean scene"})}>Creator test turn</button><button onClick={()=>handleMovieMessage({id:"mentor-1",role:"mentor",text:"Shoreline reply",metadata:{backendMetadata:{creatorTurnId:"creator-1"}}})}>Mentor test reply</button><output aria-label="Diagnostic React status">{projectStatus} | {movieMessages.map(m=>m.text).join(" / ")}</output></section>';
 assert.ok(patched.includes('<main style={styles.workspace}>'));
 patched=patched.replace('<main style={styles.workspace}>','<main style={styles.workspace}>'+injected);
-assert.doesNotMatch(patched.match(pattern)[0],/recordPendingCreatorMessage|settleConversationMessage/);
+assert.ok(patched.includes(replacement),'candidate handler installed');
+assert.equal((patched.match(/const handleMovieMessage = \(message\) =>/g)||[]).length,1);
+assert.equal(patched.includes(existing[0]),false,'original handler must not remain in temporary candidate');
 writeFileSync(component,patched);
 writeFileSync(html,'<html><body><div id="root"></div><script type="module" src="/__diagnostic_react_candidate.jsx"></script></body></html>');
 writeFileSync(entry,'import React from "react"; import {createRoot} from "react-dom/client"; import CreatorWorkspace from "./src/components/studio/__diagnostic_react_candidate.jsx"; createRoot(document.getElementById("root")).render(<CreatorWorkspace creatorName="Diagnostic Creator"/>);');
