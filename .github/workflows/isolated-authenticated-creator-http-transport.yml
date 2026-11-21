@@ -10,6 +10,8 @@ on:
       - 'scripts/isolated-frontend-continuation-compatibility.mjs'
       - 'scripts/isolated-creator-http-transport.mjs'
       - 'scripts/isolated-browser-creator-http-adapter.mjs'
+      - 'scripts/isolated-conversation-settlement-contract.mjs'
+      - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
       - 'scripts/verify-isolated-creator-http-worker.mjs'
@@ -32,6 +34,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify isolated conversation settlement input contract
+        run: node scripts/verify-isolated-conversation-settlement-contract.mjs
       - name: Pin frontend source
         run: |
           git init frontend
