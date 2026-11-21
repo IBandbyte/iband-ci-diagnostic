@@ -34,4 +34,19 @@ const rollback=await rollbackAdapter.restore('rollback-project');
 assert.equal(rollback.published,false,'older confirmed read must not overwrite newer confirmed projection');
 assert.equal(rollbackPublications.length,1);
 console.log('GREEN STUDIO_ADAPTER_OLDER_SERVER_REVISION_CANNOT_ROLL_BACK_CONFIRMED_UI');
+const readResolvers=[];const overlappingPublications=[];
+const overlapping=createStudioServerAuthorityAdapter({
+ settle:async()=>null,
+ readConfirmed:()=>new Promise(resolve=>readResolvers.push(resolve)),
+ publishConfirmed:async recovered=>overlappingPublications.push(recovered)
+});
+const olderInflight=overlapping.restore('overlap-project');
+const newerInflight=overlapping.restore('overlap-project');
+assert.equal(readResolvers.length,2);
+readResolvers[1]({projectId:'overlap-project',revision:3,conversation:[]});
+assert.equal((await newerInflight).published,true);
+readResolvers[0]({projectId:'overlap-project',revision:2,conversation:[]});
+assert.equal((await olderInflight).published,false,'late older recovery must not overwrite newer publication');
+assert.deepEqual(overlappingPublications.map(x=>x.revision),[3]);
+console.log('GREEN STUDIO_ADAPTER_OVERLAPPING_RECOVERY_LATE_OLDER_REVISION_DENIED');
 console.log('HELD REAL_CREATOR_WORKSPACE_WIRING_AND_ORIGINAL_FRONTEND_RED');
