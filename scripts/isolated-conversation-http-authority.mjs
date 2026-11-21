@@ -14,7 +14,7 @@ const parseToken=(header,key)=>{
   return verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),key,Buffer.from(parts[2],'base64url'))?p.sub:null;
  }catch{return null}
 };
-export function createIsolatedConversationHttpAuthority({db,client,publicKey,dropAfterCommitOperationId=null}={}){
+export function createIsolatedConversationHttpAuthority({db,client,publicKey,dropAfterCommitOperationId=null,beforeCommitBarrier=null,afterCommitBarrier=null}={}){
  if(!db||!client||!publicKey)throw Error('durable-authority-required');
  const key=typeof publicKey==='string'?createPublicKey(publicKey):publicKey;
  const projects=db.collection('projects'),receipts=db.collection('receipts');
@@ -46,9 +46,11 @@ export function createIsolatedConversationHttpAuthority({db,client,publicKey,dro
       const result=await projects.updateOne({_id:valid.projectId,ownerId:owner,revision:valid.expectedRevision},{$inc:{revision:1},$push:{conversation:{$each:[valid.creatorMessage,valid.mentorMessage]}}},{session});
       if(result.modifiedCount!==1)throw Error('concurrent-writer-denied');
       await receipts.insertOne({projectId:valid.projectId,operationId:valid.operationId,creatorTurnId:valid.creatorTurnId,input:valid,receipt},{session});
+      if(beforeCommitBarrier)await beforeCommitBarrier({operationId:valid.operationId});
       return {status:200,receipt};
      },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
     }finally{await session.endSession()}
+    if(outcome.status===200&&afterCommitBarrier)await afterCommitBarrier({operationId:valid.operationId});
     if(outcome.status===200&&valid.operationId===dropAfterCommitOperationId){req.socket.destroy();return}
     return reply(outcome.status,outcome.receipt||{error:outcome.error});
    }
