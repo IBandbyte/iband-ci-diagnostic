@@ -36,6 +36,7 @@ on:
       - 'scripts/verify-real-react-handler-migration-candidate.mjs'
       - 'scripts/verify-migrated-real-handler-physical-worker.mjs'
       - 'scripts/verify-migrated-real-handler-physical-orchestrator.mjs'
+      - 'scripts/verify-original-frontend-publication-red-control.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -98,6 +99,10 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Install exact pinned React frontend dependencies
         run: npm install --prefix frontend --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Verify original frontend RED unchanged and restart publication denial
+        run: |
+          cp scripts/verify-original-frontend-publication-red-control.mjs frontend/scripts/verify-original-frontend-publication-red-control.mjs
+          (cd frontend && node scripts/verify-original-frontend-publication-red-control.mjs)
       - name: Mount exact pinned React Creator Workspace in isolated Chromium
         run: node scripts/verify-pinned-react-creator-workspace-mount.mjs
       - name: Verify disposable pinned React conversation wiring candidate in Chromium
