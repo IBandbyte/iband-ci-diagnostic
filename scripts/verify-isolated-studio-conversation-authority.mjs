@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {createStudioConversationAuthority} from './isolated-studio-conversation-authority.mjs';
+const input={projectId:'p',operationId:'op',creatorTurnId:'t',expectedRevision:0,creatorMessage:{id:'t',role:'creator',text:'Scene'},mentorMessage:{id:'m',role:'mentor',text:'Ready',metadata:{backendMetadata:{creatorTurnId:'t'}}}};
+const gate=createStudioConversationAuthority({settle:async()=>null,readConfirmed:async()=>({projectId:'p',revision:0,conversation:[]})});
+assert.deepEqual(gate.stage(input),{status:'pending',durable:false});assert.equal(gate.hasPending('p','t'),true);
+assert.deepEqual(await gate.confirm('p','t'),{status:'unknown',durable:false});assert.equal(gate.hasPending('p','t'),true);
+console.log('GREEN STUDIO_GATE_UNKNOWN_RESULT_RETAINS_PENDING');
+assert.throws(()=>gate.stage({...input,mentorMessage:{...input.mentorMessage,text:'forged'}}),/pending-turn-conflict/);
+console.log('GREEN STUDIO_GATE_CONFLICTING_PENDING_TURN_DENIED');
+const confirmed=createStudioConversationAuthority({settle:async()=>({operationId:'op',creatorTurnId:'t',serverCommitId:'server-1',committedRevision:1}),readConfirmed:async()=>({projectId:'p',revision:1,conversation:[input.creatorMessage,input.mentorMessage]})});
+confirmed.stage(input);const result=await confirmed.confirm('p','t');assert.equal(result.durable,true);assert.equal(confirmed.hasPending('p','t'),false);
+console.log('GREEN STUDIO_GATE_MATCHED_SERVER_RECEIPT_RETIRES_PENDING');
+assert.equal((await confirmed.restore('p')).conversation.length,2);
+const invalid=createStudioConversationAuthority({settle:async()=>null,readConfirmed:async()=>({projectId:'other',revision:1,conversation:[]})});await assert.rejects(()=>invalid.restore('p'),/unverified-server-recovery/);
+console.log('GREEN STUDIO_GATE_SERVER_RECOVERY_PROJECT_BOUND');
+console.log('HELD REAL_STUDIO_WIRING_AND_ORIGINAL_FRONTEND_RED');
