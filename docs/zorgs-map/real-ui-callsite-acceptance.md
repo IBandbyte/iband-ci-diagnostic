@@ -31,3 +31,15 @@ Status: DESIGN / NOT CERTIFIED. Isolated diagnostic branch only; application mai
 - `src/components/studio/mentor/CreatorMemory.js`: `continueWithDurableServerAuthority` (lines 771-789) delegates to the pinned boundary, returns server-read-only snapshot with `localStateAdopted:false`. No UI caller of this method was observed in inspected components. No assertion of complete repository-wide absence until exact pinned-head code search or equivalent exhaustive audit.
 
 **Engineering conclusion:** the existing visible chat Send path and the candidate server-owned creator edit path are distinct. A positive Node boundary test must not be misrepresented as a wired browser UI. Next gate: isolated UI harness for a new explicit server-owned continuation action and a negative bypass court around legacy local write calls; original frontend RED unchanged.
+
+
+## 2026-11-21 physical-browser gate after 9f033696
+
+Exact-head physical Chromium/Mongo 11/11 GREEN is an isolated transport/authority result, not evidence that CreatorWorkspace uses the adapter. Inspected pinned frontend 344d98ff:
+- CreatorWorkspace.jsx handleMovieMessage (225-240) immediately adds messages to React state, records creator messages in process-local pending memory, and invokes identityRuntime.settleConversationMessage for mentor messages.
+- MovieMentorStudioIdentityRuntime.js recordPendingCreatorMessage (433+) keeps a process-local map; settleConversationMessage (477+) uses shared local settlement authority and local memory, not the isolated authenticated HTTP edit adapter.
+- The pinned real UI does not call continueWithDurableServerAuthority; its strict read-only protection remains in force.
+
+Required implementation boundary before any application wiring: define a server-owned conversation-turn admission and settlement contract (not merely content-only state edits); bind JWT owner, project, operation ID, expected revision, canonical turn identity and immutable receipt; keep pending creator turns on unknown outcomes; retrieve server receipt on retry; reject stale/competing writer; avoid exposing Mongo/fence to browser. Preserve the existing mentor backend request/response semantics. Only then stage an isolated real-UI test of actual send/reload/recovery and independently certify the original RED.
+
+This section is a contract-gap record, not a claim of application integration or a GREEN.
