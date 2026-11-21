@@ -77,6 +77,7 @@ jobs:
           cp ../scripts/isolated-creator-http-transport.mjs .
           cp ../scripts/isolated-browser-creator-http-adapter.mjs .
           cp ../frontend/src/components/studio/mentor/MovieMentorDurableCreatorWriteBoundary.js ./pinned-frontend-durable-creator-boundary.mjs
+          cp ../frontend/src/components/studio/CreatorWorkspace.jsx ./pinned-creator-workspace.jsx
           cp ../scripts/verify-isolated-creator-http-worker.mjs .
           cp ../scripts/verify-isolated-creator-browser-persistence-worker.mjs .
           cp ../scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs .
