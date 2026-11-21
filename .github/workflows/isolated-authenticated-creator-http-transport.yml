@@ -45,6 +45,8 @@ on:
       - 'scripts/verify-pinned-creator-memory-fenced-writable-orchestrator.mjs'
       - 'scripts/isolated-real-studio-lifecycle-handoff.mjs'
       - 'scripts/verify-isolated-real-studio-lifecycle-handoff.mjs'
+      - 'scripts/verify-physical-pinned-studio-lifecycle-worker.mjs'
+      - 'scripts/verify-physical-pinned-studio-lifecycle-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -180,3 +182,7 @@ jobs:
           cp ../scripts/verify-pinned-creator-memory-fenced-writable-worker.mjs .
           cp ../scripts/verify-pinned-creator-memory-fenced-writable-orchestrator.mjs .
           node ./verify-pinned-creator-memory-fenced-writable-orchestrator.mjs
+          cp ../scripts/isolated-real-studio-lifecycle-handoff.mjs .
+          cp ../scripts/verify-physical-pinned-studio-lifecycle-worker.mjs .
+          cp ../scripts/verify-physical-pinned-studio-lifecycle-orchestrator.mjs .
+          node ./verify-physical-pinned-studio-lifecycle-orchestrator.mjs
