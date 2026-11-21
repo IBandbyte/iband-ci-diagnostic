@@ -26,7 +26,9 @@ export function createStudioServerAuthorityAdapter({settle,readConfirmed,publish
    if((epochs.get(projectId)||0)!==epoch||pending(projectId).size) return {status:'stale-local-change',published:false};
    const last=confirmedRevisions.get(projectId);
    if(last!==undefined&&recovered.revision<last)return {status:'stale-server-revision',published:false,revision:recovered.revision};
-   await publishConfirmed(structuredClone(recovered));
+   const isCurrent=()=>((epochs.get(projectId)||0)===epoch&&!pending(projectId).size&&(confirmedRevisions.get(projectId)===undefined||recovered.revision>=confirmedRevisions.get(projectId)));
+   await publishConfirmed(structuredClone(recovered),Object.freeze({isCurrent}));
+   if(!isCurrent())return {status:'stale-local-change',published:false};
    confirmedRevisions.set(projectId,recovered.revision);
    return {status:'confirmed',published:true,revision:recovered.revision};
   },
