@@ -1,0 +1,21 @@
+// Source-bound audit of the pinned real studio; this is NOT a runtime integration certificate.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const workspace=readFileSync('frontend/src/components/studio/CreatorWorkspace.jsx','utf8');
+const runtime=readFileSync('frontend/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js','utf8');
+const handler=workspace.match(/const handleMovieMessage = \(message\) => \{([\s\S]*?)\n  \};/);
+assert.ok(handler,'real CreatorWorkspace handler must be locatable');
+assert.match(handler[1],/setMovieMessages\(\(current\) => \[\.\.\.current, message\]\)/);
+console.log('GREEN PINNED_STUDIO_OPTIMISTIC_MESSAGE_PUBLICATION_IDENTIFIED');
+assert.match(handler[1],/identityRuntime\s*\.settleConversationMessage\(/);
+assert.match(handler[1],/identityRuntime\.recordPendingCreatorMessage\(/);
+console.log('GREEN PINNED_STUDIO_LOCAL_SETTLEMENT_CALLPATH_IDENTIFIED');
+assert.match(runtime,/pendingCreatorMessageByProject\.set\(pid, clone\(message\)\)/);
+assert.match(runtime,/pendingCreatorMessageByProject\.get\(pid\)/);
+console.log('GREEN PINNED_STUDIO_PROCESS_LOCAL_PENDING_TURN_IDENTIFIED');
+assert.match(runtime,/MOVIE_MENTOR_DURABLE_SETTLEMENT_TURN_ID_REQUIRED/);
+assert.match(runtime,/MOVIE_MENTOR_SHARED_WRITE_AUTHORITY_REQUIRED/);
+console.log('GREEN PINNED_STUDIO_LEGACY_SETTLEMENT_GUARDS_IDENTIFIED');
+assert.doesNotMatch(handler[1],/createBrowserCreatorHttpAdapter|\/creator\/commit|\/creator\/read-committed/);
+console.log('HELD REAL_STUDIO_SERVER_OWNED_CONVERSATION_WIRING_NOT_PRESENT');
+console.log('HELD ORIGINAL_FRONTEND_RED_AND_PHASE_01');
