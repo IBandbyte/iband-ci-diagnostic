@@ -207,7 +207,7 @@ try{
   writeFileSync(comp,candidate);
   writeFileSync(html,'<html><body><div id="root"></div><script type="module" src="/__diagnostic_http_react.jsx"></script></body></html>');
   writeFileSync(entry,'import React from "react"; import {createRoot} from "react-dom/client"; import CreatorWorkspace from "./src/components/studio/__diagnostic_http_react.jsx"; createRoot(document.getElementById("root")).render(<CreatorWorkspace creatorName="Diagnostic Creator"/>);');
-  writeFileSync(config,'import {defineConfig} from "vite"; export default defineConfig({server:{proxy:{"/creator":{target:"http://127.0.0.1:'+server.address().port+'",changeOrigin:true}}}});');
+  writeFileSync(config,'import {defineConfig} from "vite"; import react from "@vitejs/plugin-react-swc"; export default defineConfig({plugins:[react()],server:{proxy:{"/creator":{target:"http://127.0.0.1:'+server.address().port+'",changeOrigin:true}}}});');
   const vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port',String(proxyPort),'--strictPort','--config','__diagnostic_http_vite.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
   let output='';vite.stdout.on('data',x=>output+=x);vite.stderr.on('data',x=>output+=x);
   let browser;
