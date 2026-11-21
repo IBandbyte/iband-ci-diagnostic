@@ -11,5 +11,5 @@ async function killAt(phase,marker){await new Promise((resolve,reject)=>{
  child.on('error',finish);child.on('exit',(code,signal)=>{if(!done)finish(new Error('worker exited before marker '+code+' '+signal))});
 });}
 run('seed');await killAt('before-commit','READY_TO_KILL_BEFORE_COMMIT');run('verify-rollback');
-run('seed');await killAt('after-commit','READY_TO_KILL_AFTER_COMMIT');run('recover');
+run('seed-post');await killAt('after-commit','READY_TO_KILL_AFTER_COMMIT');run('recover');
 console.log('HELD REAL_STUDIO_UI_INTEGRATION_AND_ORIGINAL_FRONTEND_RED');
