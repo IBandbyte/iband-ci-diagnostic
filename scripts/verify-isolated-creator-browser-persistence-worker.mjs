@@ -215,10 +215,10 @@ try{
     let ready=false;for(let i=0;i<100;i++){if(vite.exitCode!==null)throw Error('Vite exit '+output.slice(-1000));try{if((await fetch('http://127.0.0.1:'+proxyPort+'/__diagnostic_http_react.html')).ok){ready=true;break}}catch{}await delay(150)}
     assert.ok(ready,'Vite not ready '+output.slice(-900));
     browser=await chromium.launch({headless:true});
-    const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+    const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')errors.push('console: '+m.text())});page.on('response',resp=>{if(resp.status()>=400)errors.push('HTTP '+resp.status()+' '+resp.url())});
     await page.addInitScript(({token,baseState})=>{globalThis.__studioToken=token;globalThis.__studioBaseState=baseState;globalThis.__studioPending=null},{token:process.env.OWNER_TOKEN,baseState:canonical.state});
     await page.goto('http://127.0.0.1:'+proxyPort+'/__diagnostic_http_react.html');
-    await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).waitFor({timeout:15000});
+    try{await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).waitFor({timeout:15000})}catch(error){console.error('DIAGNOSTIC_REACT_MOUNT_FAILURE',JSON.stringify({errors,html:(await page.content()).slice(0,900),viteOutput:output.slice(-1800)}));throw error}
     await page.getByRole('button',{name:'Send diagnostic creator turn'}).click();
     await page.getByRole('button',{name:'Send diagnostic mentor reply'}).click();
     const outputNode=page.getByLabel('React HTTP conversation status');let shown='';
