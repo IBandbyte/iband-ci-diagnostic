@@ -56,10 +56,11 @@ const publicationEvents=[];
 const publishing=createStudioServerAuthorityAdapter({
  settle:async()=>null,
  readConfirmed:async()=>({projectId:'publication-race',revision:4,conversation:[]}),
- publishConfirmed:async recovered=>{
+ publishConfirmed:async (recovered,{isCurrent})=>{
   publicationEvents.push('begin-'+recovered.revision);
   enterPublish();
   await publishRelease;
+  if(!isCurrent())return;
   publicationEvents.push('commit-'+recovered.revision);
  }
 });
