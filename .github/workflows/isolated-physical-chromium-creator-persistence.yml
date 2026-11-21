@@ -1,0 +1,83 @@
+name: Isolated Physical Chromium Creator Persistence
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
+      - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
+      - 'scripts/isolated-server-publication-provenance.mjs'
+      - 'scripts/isolated-writable-admission-gate.mjs'
+      - 'scripts/isolated-server-owned-positive-editor.mjs'
+      - 'scripts/isolated-frontend-continuation-compatibility.mjs'
+      - 'scripts/isolated-creator-http-transport.mjs'
+      - 'scripts/isolated-browser-creator-http-adapter.mjs'
+      - 'scripts/verify-isolated-creator-http-worker.mjs'
+      - 'scripts/verify-isolated-creator-http-orchestrator.mjs'
+      - '.github/workflows/isolated-authenticated-creator-http-transport.yml'
+      - 'scripts/verify-frontend-boundary-compatibility-worker.mjs'
+      - 'scripts/verify-frontend-boundary-compatibility-orchestrator.mjs'
+      - '.github/workflows/isolated-pinned-frontend-boundary-compatibility.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  physical-authenticated-creator-http-transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017/real_facade_provenance_bridge_court?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin frontend source
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
+      - name: Pin backend dependency
+        run: |
+          git init backend
+          git -C backend fetch --depth=1 https://github.com/IBandbyte/iband-backend-first.git f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+          git -C backend checkout --detach FETCH_HEAD
+          test "$(git -C backend rev-parse HEAD)" = f367cd1964bac89b7ba23f1a662c0df19c3b8d16
+      - name: Install isolated dependencies
+        working-directory: backend
+        run: npm install --no-package-lock --ignore-scripts --no-audit --no-fund
+      - name: Install isolated Chromium
+        working-directory: backend
+        run: |
+          npm install --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+      - name: Start isolated Mongo replica set
+        run: |
+          docker run -d --name facade-provenance-rs0 -p 127.0.0.1:27017:27017 mongo:7 --replSet rs0 --bind_ip_all
+          for i in $(seq 1 30); do
+            if docker exec facade-provenance-rs0 mongosh --quiet --eval 'db.adminCommand({ping:1})' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec facade-provenance-rs0 mongosh --quiet --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]})'
+          for i in $(seq 1 30); do
+            if docker exec facade-provenance-rs0 mongosh --quiet --eval 'if (!db.hello().isWritablePrimary) quit(1)' >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Physical authenticated HTTP commit readback and revocation across independent processes
+        working-directory: backend
+        run: |
+          cp ../scripts/isolated-server-publication-provenance.mjs .
+          cp ../scripts/isolated-writable-admission-gate.mjs .
+          cp ../scripts/isolated-server-owned-positive-editor.mjs .
+          cp ../scripts/isolated-real-facade-server-edit-bridge.mjs .
+          cp ../scripts/isolated-frontend-continuation-compatibility.mjs .
+          cp ../scripts/verify-frontend-boundary-compatibility-worker.mjs .
+          cp ../scripts/verify-frontend-boundary-compatibility-orchestrator.mjs .
+          cp ../scripts/isolated-creator-http-transport.mjs .
+          cp ../scripts/isolated-browser-creator-http-adapter.mjs .
+          cp ../frontend/src/components/studio/mentor/MovieMentorDurableCreatorWriteBoundary.js ./pinned-frontend-durable-creator-boundary.mjs
+          cp ../scripts/verify-isolated-creator-http-worker.mjs .
+          cp ../scripts/verify-isolated-creator-browser-persistence-worker.mjs .
+          cp ../scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs .
+          node ./verify-isolated-creator-browser-persistence-orchestrator.mjs
