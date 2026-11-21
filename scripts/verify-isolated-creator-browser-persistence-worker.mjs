@@ -107,12 +107,90 @@ try{
    console.log('GREEN PHYSICAL_CHROMIUM_AUTHENTICATED_HTTP_COMMIT_AND_READBACK');
    console.log('GREEN PHYSICAL_CHROMIUM_FRESH_PAGE_DURABLE_READBACK');
   }finally{await browser.close()}
+ }else if(phase==='studio-browser-candidate'){
+  assert.equal(canonical.revision,7,'candidate begins after physical browser seed');
+  const {chromium}=await import('playwright');
+  const {readFileSync}=await import('node:fs');
+  const source=readFileSync('./pinned-creator-workspace.jsx','utf8');
+  const original=source.match(/const handleMovieMessage = \\(message\\) => \\{([\\s\\S]*?)\\n  \\};/);
+  assert.ok(original,'exact pinned CreatorWorkspace handler required');
+  assert.match(original[0],/recordPendingCreatorMessage/);
+  assert.match(original[0],/settleConversationMessage/);
+  // Source-derived Studio candidate: only the handler is replaced in memory; the
+  // actual frontend bundle is neither rendered nor modified by this test.
+  const candidate=`const handleMovieMessage = (message) => {
+    if(message?.role === 'creator') {
+      if(state.pending) throw Error('pending-turn-already-exists');
+      state.pending=message;
+      render('Pending: '+message.text);
+      return;
+    }
+    if(message?.role !== 'mentor')return;
+    if(!state.pending||message?.metadata?.backendMetadata?.creatorTurnId!==state.pending.id)throw Error('invalid-mentor-provenance');
+    const creator=state.pending;
+    void (async()=>{
+      const proposedState={...baseState,content:JSON.stringify({creator,mentor:message})};
+      const receipt=await transport.commit({projectId,operationId,expectedRevision:7,proposedState});
+      const recovered=await transport.readCommitted({projectId,operationId});
+      if(recovered.serverCommitId!==receipt.serverCommitId||recovered.committedRevision!==receipt.committedRevision)throw Error('readback-receipt-mismatch');
+      const parsed=JSON.parse(recovered.state.content);
+      if(parsed.creator.id!==creator.id||parsed.mentor.id!==message.id)throw Error('conversation-readback-mismatch');
+      state.pending=null;state.confirmed=parsed;render('Confirmed: '+parsed.creator.text+' / '+parsed.mentor.text);
+    })().catch(error=>{state.error=String(error);render('Pending: '+creator.text+' (server unknown)');});
+  };`;
+  assert.notEqual(source.replace(original[0],candidate),source);
+  const moduleSource=readFileSync('./isolated-browser-creator-http-adapter.mjs','utf8');
+  const browser=await chromium.launch({headless:true});
+  const operationId='admit1:studio-browser',owner=process.env.OWNER_TOKEN;
+  try{
+    const page=await browser.newPage();
+    await page.goto(url+'/creator/read-committed');
+    await page.setContent('<main><h1>Isolated Studio candidate</h1><div id="conversation">Not confirmed</div></main>');
+    const first=await page.evaluate(async({candidate,moduleSource,url,owner,projectId,operationId,baseState})=>{
+      const {createBrowserCreatorHttpAdapter}=await import('data:text/javascript;base64,'+btoa(moduleSource));
+      const transport=createBrowserCreatorHttpAdapter({baseUrl:url,getBearerToken:async()=>owner});
+      const state={pending:null,confirmed:null,error:null};
+      const render=text=>{document.querySelector('#conversation').textContent=text};
+      const handler=new Function('state','render','transport','baseState','projectId','operationId',candidate+'\\nreturn handleMovieMessage;')(state,render,transport,baseState,projectId,operationId);
+      const creator={id:'studio-browser-turn',role:'creator',text:'An ocean scene'};
+      const mentor={id:'studio-browser-mentor',role:'mentor',text:'Let us plan that scene',metadata:{backendMetadata:{creatorTurnId:creator.id}}};
+      handler(creator);
+      const before=document.querySelector('#conversation').textContent;
+      handler(mentor);
+      for(let i=0;i<100&&!state.confirmed&&!state.error;i++)await new Promise(resolve=>setTimeout(resolve,20));
+      return {before,after:document.querySelector('#conversation').textContent,confirmed:state.confirmed,error:state.error};
+    },{candidate,moduleSource,url,owner,projectId,operationId,baseState:canonical.state});
+    assert.match(first.before,/Pending: An ocean scene/);
+    assert.equal(first.error,null,JSON.stringify(first));
+    assert.equal(first.confirmed?.creator?.text,'An ocean scene');
+    assert.match(first.after,/Confirmed: An ocean scene/);
+    assert.equal((await gate.states.findOne({projectId})).revision,8);
+    console.log('GREEN SOURCE_DERIVED_STUDIO_CHROMIUM_AUTHENTICATED_CONVERSATION_SAVE_AND_READBACK');
+    await page.close();
+    const fresh=await browser.newPage();
+    await fresh.goto(url+'/creator/read-committed');
+    await fresh.setContent('<main><h1>Isolated Studio candidate reloaded</h1><div id="conversation">Not confirmed</div></main>');
+    const recovered=await fresh.evaluate(async({moduleSource,url,owner,projectId,operationId})=>{
+      const {createBrowserCreatorHttpAdapter}=await import('data:text/javascript;base64,'+btoa(moduleSource));
+      const transport=createBrowserCreatorHttpAdapter({baseUrl:url,getBearerToken:async()=>owner});
+      const receipt=await transport.readCommitted({projectId,operationId});
+      const conversation=JSON.parse(receipt.state.content);
+      document.querySelector('#conversation').textContent='Recovered: '+conversation.creator.text+' / '+conversation.mentor.text;
+      return {conversation,text:document.querySelector('#conversation').textContent,receiptId:receipt.serverCommitId};
+    },{moduleSource,url,owner,projectId,operationId});
+    assert.equal(recovered.conversation.creator.id,'studio-browser-turn');
+    assert.equal(recovered.conversation.mentor.id,'studio-browser-mentor');
+    assert.match(recovered.text,/Recovered: An ocean scene/);
+    assert.equal(await editor.edits.countDocuments({projectId}),6);
+    console.log('GREEN SOURCE_DERIVED_STUDIO_CHROMIUM_FRESH_PAGE_DURABLE_CONVERSATION_RECOVERY');
+    console.log('HELD REAL_CREATOR_WORKSPACE_REACT_MOUNT_AND_PROCESS_KILL_RECOVERY');
+  }finally{await browser.close()}
  }else if(phase==='revoke'){
-  assert.equal(canonical.revision,7);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
+  assert.equal(canonical.revision,8);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
   assert.notEqual((await read(owner,'admit1:edit1')).status,200);
   assert.notEqual((await read(owner,'admit1:edit2')).status,200);
   assert.notEqual((await commit(owner,'admit1:edit3',4,{...canonical.state,content:'forbidden'})).status,200);
-  assert.equal((await gate.states.findOne({projectId})).revision,7);assert.equal(await editor.edits.countDocuments({projectId}),5);
+  assert.equal((await gate.states.findOne({projectId})).revision,8);assert.equal(await editor.edits.countDocuments({projectId}),6);
   console.log('GREEN HTTP_REVOKED_OWNER_READ_AND_EDIT_DENIED');
   console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
