@@ -185,12 +185,76 @@ try{
     console.log('GREEN SOURCE_DERIVED_STUDIO_CHROMIUM_FRESH_PAGE_DURABLE_CONVERSATION_RECOVERY');
     console.log('HELD REAL_CREATOR_WORKSPACE_REACT_MOUNT_AND_PROCESS_KILL_RECOVERY');
   }finally{await browser.close()}
+ }else if(phase==='react-http-candidate'){
+  assert.equal(canonical.revision,8);
+  const {chromium}=await import('playwright');
+  const {readFileSync,writeFileSync,rmSync}=await import('node:fs');
+  const {spawn}=await import('node:child_process');
+  const {setTimeout:delay}=await import('node:timers/promises');
+  const root='../frontend',source=readFileSync(root+'/src/components/studio/CreatorWorkspace.jsx','utf8');
+  const match=source.match(/const handleMovieMessage = \(message\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(match&&match[0].includes('recordPendingCreatorMessage')&&match[0].includes('settleConversationMessage'),'pinned local handler required');
+  const replacement='const handleMovieMessage = (message) => { const projectId=activeMovieProject?.id; if(!projectId)return; if(message?.role==="creator"){ if(globalThis.__studioPending)throw Error("pending-turn-conflict");globalThis.__studioPending=message;setMovieMessages(a=>[...a,message]);return;} if(message?.role!=="mentor")return;const creator=globalThis.__studioPending;if(!creator||message.metadata?.backendMetadata?.creatorTurnId!==creator.id)throw Error("mentor-provenance-denied");setMovieMessages(a=>[...a,message]);const proposedState={...globalThis.__studioBaseState,content:JSON.stringify({creator,mentor:message})};void (async()=>{ const body={projectId,operationId:"admit1:react-http",expectedRevision:8,proposedState};const headers={"content-type":"application/json",authorization:"Bearer "+globalThis.__studioToken};const resp=await fetch("/creator/commit",{method:"POST",headers,body:JSON.stringify(body)});if(!resp.ok)throw Error("commit-unknown");const receipt=await resp.json();const read=await fetch("/creator/read-committed",{method:"POST",headers,body:JSON.stringify({projectId,operationId:body.operationId})});if(!read.ok)throw Error("readback-denied");const recovered=await read.json();if(receipt.serverCommitId!==recovered.serverCommitId||receipt.committedRevision!==recovered.committedRevision)throw Error("receipt-mismatch");const conversation=JSON.parse(recovered.state.content);if(conversation.creator.id!==creator.id||conversation.mentor.id!==message.id)throw Error("conversation-mismatch");globalThis.__studioPending=null;setMovieMessages([conversation.creator,conversation.mentor]);setProjectStatus("saved");})().catch(()=>setProjectStatus("error")); };';
+  const initial='const [activeMovieProject, setActiveMovieProject] = useState(resumeSnapshot?.project || null);';
+  assert.ok(source.includes(initial));
+  let candidate=source.replace(match[0],replacement).replace(initial,'const [activeMovieProject, setActiveMovieProject] = useState({id:"frontend-boundary-compatibility"});');
+  const controls='<section aria-label="React HTTP Studio candidate"><button onClick={()=>handleMovieMessage({id:"http-creator-1",role:"creator",text:"Shoreline project"})}>Send diagnostic creator turn</button><button onClick={()=>handleMovieMessage({id:"http-mentor-1",role:"mentor",text:"Plan the coastline",metadata:{backendMetadata:{creatorTurnId:"http-creator-1"}}})}>Send diagnostic mentor reply</button><output aria-label="React HTTP conversation status">{projectStatus} | {movieMessages.map(x=>x.text).join(" / ")}</output></section>';
+  assert.ok(candidate.includes('<main style={styles.workspace}>'));
+  candidate=candidate.replace('<main style={styles.workspace}>','<main style={styles.workspace}>'+controls);
+  assert.equal(candidate.includes(match[0]),false);
+  const comp=root+'/src/components/studio/__diagnostic_http_react.jsx',html=root+'/__diagnostic_http_react.html',entry=root+'/__diagnostic_http_react.jsx',config=root+'/__diagnostic_http_vite.config.mjs';
+  const proxyPort=52743;
+  writeFileSync(comp,candidate);
+  writeFileSync(html,'<html><body><div id="root"></div><script type="module" src="/__diagnostic_http_react.jsx"></script></body></html>');
+  writeFileSync(entry,'import React from "react"; import {createRoot} from "react-dom/client"; import CreatorWorkspace from "./src/components/studio/__diagnostic_http_react.jsx"; createRoot(document.getElementById("root")).render(<CreatorWorkspace creatorName="Diagnostic Creator"/>);');
+  writeFileSync(config,'import {defineConfig} from "vite"; export default defineConfig({server:{proxy:{"/creator":{target:"http://127.0.0.1:'+server.address().port+'",changeOrigin:true}}}});');
+  const vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port',String(proxyPort),'--strictPort','--config','__diagnostic_http_vite.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
+  let output='';vite.stdout.on('data',x=>output+=x);vite.stderr.on('data',x=>output+=x);
+  let browser;
+  try{
+    let ready=false;for(let i=0;i<100;i++){if(vite.exitCode!==null)throw Error('Vite exit '+output.slice(-1000));try{if((await fetch('http://127.0.0.1:'+proxyPort+'/__diagnostic_http_react.html')).ok){ready=true;break}}catch{}await delay(150)}
+    assert.ok(ready,'Vite not ready '+output.slice(-900));
+    browser=await chromium.launch({headless:true});
+    const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+    await page.addInitScript(({token,baseState})=>{globalThis.__studioToken=token;globalThis.__studioBaseState=baseState;globalThis.__studioPending=null},{token:process.env.OWNER_TOKEN,baseState:canonical.state});
+    await page.goto('http://127.0.0.1:'+proxyPort+'/__diagnostic_http_react.html');
+    await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).waitFor({timeout:15000});
+    await page.getByRole('button',{name:'Send diagnostic creator turn'}).click();
+    await page.getByRole('button',{name:'Send diagnostic mentor reply'}).click();
+    const outputNode=page.getByLabel('React HTTP conversation status');let shown='';
+    for(let i=0;i<100;i++){shown=await outputNode.textContent()||'';if(shown.startsWith('saved | '))break;await delay(25)}
+    assert.match(shown,/^saved \| Shoreline project \/ Plan the coastline$/);
+    assert.equal(await page.evaluate(()=>globalThis.__studioPending),null);
+    assert.deepEqual(errors,[]);
+    const stored=await gate.states.findOne({projectId});
+    assert.equal(stored.revision,9);
+    const committed=JSON.parse(stored.state.content);
+    assert.equal(committed.creator.id,'http-creator-1');
+    assert.equal(committed.mentor.id,'http-mentor-1');
+    console.log('GREEN PINNED_REACT_CANDIDATE_AUTHENTICATED_HTTP_MONGO_CONVERSATION_READBACK');
+    await page.close();
+    const fresh=await browser.newPage();await fresh.goto('http://127.0.0.1:'+proxyPort+'/__diagnostic_http_react.html');
+    const recovered=await fresh.evaluate(async(token)=>{
+      const response=await fetch('/creator/read-committed',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({projectId:'frontend-boundary-compatibility',operationId:'admit1:react-http'})});
+      if(!response.ok)throw Error('recovery-denied');
+      return response.json();
+    },process.env.OWNER_TOKEN);
+    assert.equal(recovered.committedRevision,9);
+    assert.deepEqual(JSON.parse(recovered.state.content),committed);
+    assert.equal(await editor.edits.countDocuments({projectId}),7);
+    console.log('GREEN PINNED_REACT_CANDIDATE_FRESH_PAGE_AUTHENTICATED_CONVERSATION_RECOVERY');
+    console.log('HELD ATOMIC_TWO_MESSAGE_STUDIO_SETTLEMENT_AND_PRODUCTION_REACT_WIRING');
+  }finally{
+    if(browser)await browser.close();
+    vite.kill('SIGTERM');for(let i=0;i<30&&vite.exitCode===null;i++)await delay(100);if(vite.exitCode===null)vite.kill('SIGKILL');
+    for(const file of [comp,html,entry,config])rmSync(file,{force:true});
+  }
  }else if(phase==='revoke'){
-  assert.equal(canonical.revision,8);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
+  assert.equal(canonical.revision,9);await gate.states.updateOne({_id:canonical._id,revoked:false},{$set:{revoked:true}});
   assert.notEqual((await read(owner,'admit1:edit1')).status,200);
   assert.notEqual((await read(owner,'admit1:edit2')).status,200);
   assert.notEqual((await commit(owner,'admit1:edit3',4,{...canonical.state,content:'forbidden'})).status,200);
-  assert.equal((await gate.states.findOne({projectId})).revision,8);assert.equal(await editor.edits.countDocuments({projectId}),6);
+  assert.equal((await gate.states.findOne({projectId})).revision,9);assert.equal(await editor.edits.countDocuments({projectId}),7);
   console.log('GREEN HTTP_REVOKED_OWNER_READ_AND_EDIT_DENIED');
   console.log('HELD ORIGINAL_FRONTEND_RED_AND_REAL_UI_INTEGRATION');
  }else throw Error('unknown phase');
