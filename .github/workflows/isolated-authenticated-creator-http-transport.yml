@@ -57,6 +57,9 @@ on:
       - 'scripts/verify-isolated-browser-pending-rehydration.mjs'
       - 'scripts/verify-physical-browser-pending-sigkill-worker.mjs'
       - 'scripts/verify-physical-browser-pending-sigkill-orchestrator.mjs'
+      - 'scripts/isolated-server-original-red-project-selection.mjs'
+      - 'scripts/verify-original-red-server-project-selection-worker.mjs'
+      - 'scripts/verify-original-red-server-project-selection-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -211,3 +214,7 @@ jobs:
           cp ../scripts/verify-physical-browser-pending-sigkill-worker.mjs .
           cp ../scripts/verify-physical-browser-pending-sigkill-orchestrator.mjs .
           node ./verify-physical-browser-pending-sigkill-orchestrator.mjs
+          cp ../scripts/isolated-server-original-red-project-selection.mjs .
+          cp ../scripts/verify-original-red-server-project-selection-worker.mjs .
+          cp ../scripts/verify-original-red-server-project-selection-orchestrator.mjs .
+          node ./verify-original-red-server-project-selection-orchestrator.mjs
