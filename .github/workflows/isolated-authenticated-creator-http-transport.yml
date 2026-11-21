@@ -10,6 +10,8 @@ on:
       - 'scripts/isolated-frontend-continuation-compatibility.mjs'
       - 'scripts/isolated-creator-http-transport.mjs'
       - 'scripts/isolated-browser-creator-http-adapter.mjs'
+      - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
+      - 'scripts/verify-isolated-conversation-sigkill-orchestrator.mjs'
       - 'scripts/verify-isolated-physical-conversation-settlement.mjs'
       - 'scripts/isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
@@ -91,3 +93,6 @@ jobs:
           cp ../scripts/isolated-conversation-settlement-contract.mjs .
           cp ../scripts/verify-isolated-physical-conversation-settlement.mjs .
           node ./verify-isolated-physical-conversation-settlement.mjs
+          cp ../scripts/verify-isolated-conversation-sigkill-worker.mjs .
+          cp ../scripts/verify-isolated-conversation-sigkill-orchestrator.mjs .
+          node ./verify-isolated-conversation-sigkill-orchestrator.mjs
