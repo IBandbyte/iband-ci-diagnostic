@@ -40,6 +40,7 @@ on:
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
       - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
       - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
+      - 'scripts/verify-pinned-creator-memory-server-restart-bridge.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -168,3 +169,5 @@ jobs:
           cp ../scripts/verify-isolated-server-restart-positive-worker.mjs .
           cp ../scripts/verify-isolated-server-restart-positive-orchestrator.mjs .
           node ./verify-isolated-server-restart-positive-orchestrator.mjs
+          cp ../scripts/verify-pinned-creator-memory-server-restart-bridge.mjs .
+          node ./verify-pinned-creator-memory-server-restart-bridge.mjs
