@@ -22,3 +22,12 @@ Status: DESIGN / NOT CERTIFIED. Isolated diagnostic branch only; application mai
 - Actual browser UI call site not wired/certified.
 - Original frontend RED not resolved.
 - Production readiness, local writable restoration, Phase 01 release, merge, deploy and production database writes remain HELD.
+
+## Pinned real UI call-path reconnaissance (2026-11-21; source inspection, NOT certification)
+- `src/components/studio/CreatorWorkspace.jsx`: mounts `MovieMentorConversation` (around line 330); owns `handleMovieMessage` (around lines 226-241). Creator messages call `identityRuntime.recordPendingCreatorMessage`; mentor messages call asynchronous `identityRuntime.settleConversationMessage` with an error/retained-pending-turn path.
+- `src/components/studio/mentor/MovieMentorConversation.jsx`: wraps `MovieMentorConversationCore`, forwards messages through `publishMessage` (lines 66-74), suppresses already-published mentor turn IDs, and re-emits recovered pending creator turns (lines 54-64).
+- `src/components/studio/mentor/MovieMentorConversationCore.jsx`: actual textarea/Send button invokes `handleSend` (around line 73), calls `onSendMessage(creatorMessage)`, then `requestMovieMentorTurn`, then `onMentorTurnResult`, then `onSendMessage(mentorMessage)`. This is the visible conversation route, NOT a call to the isolated server-owned creator edit boundary.
+- `src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js`: constructs strict-writer `createCreatorMemory({requireSharedWriteAuthority:true})` (around line 115) and exposes conversation resume/settlement operations.
+- `src/components/studio/mentor/CreatorMemory.js`: `continueWithDurableServerAuthority` (lines 771-789) delegates to the pinned boundary, returns server-read-only snapshot with `localStateAdopted:false`. No UI caller of this method was observed in inspected components. No assertion of complete repository-wide absence until exact pinned-head code search or equivalent exhaustive audit.
+
+**Engineering conclusion:** the existing visible chat Send path and the candidate server-owned creator edit path are distinct. A positive Node boundary test must not be misrepresented as a wired browser UI. Next gate: isolated UI harness for a new explicit server-owned continuation action and a negative bypass court around legacy local write calls; original frontend RED unchanged.
