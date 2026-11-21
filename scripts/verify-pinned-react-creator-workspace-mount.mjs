@@ -14,7 +14,7 @@ import CreatorWorkspace from './src/components/studio/CreatorWorkspace.jsx';
 createRoot(document.getElementById('root')).render(<CreatorWorkspace creatorName="Diagnostic Creator" />);
 `;
 writeFileSync(html,htmlSource);writeFileSync(entry,entrySource);
-const vite=spawn(root+'/node_modules/.bin/vite',['--host','127.0.0.1','--port',String(port),'--strictPort'],{cwd:root,stdio:['ignore','pipe','pipe']});
+const vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port',String(port),'--strictPort'],{cwd:root,stdio:['ignore','pipe','pipe']});
 let output='';
 vite.stdout.on('data',b=>{output+=b.toString()});
 vite.stderr.on('data',b=>{output+=b.toString()});
