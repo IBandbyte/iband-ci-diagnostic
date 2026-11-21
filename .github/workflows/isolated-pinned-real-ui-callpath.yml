@@ -1,0 +1,27 @@
+name: Isolated Pinned Real Creator UI Call Path
+on:
+  push:
+    branches: [verify/frontend-mongo-authority-integration-01]
+    paths:
+      - 'scripts/verify-pinned-real-ui-callpath.mjs'
+      - '.github/workflows/isolated-pinned-real-ui-callpath.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned-ui-callpath:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fetch exact pinned frontend
+        run: |
+          git init frontend
+          git -C frontend fetch --depth=1 https://github.com/IBandbyte/Iband-frontend-first.git 344d98ff0c7e075a7e6530c8871670ad8044d220
+          git -C frontend checkout --detach FETCH_HEAD
+          test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
+      - name: Examine real creator UI call path and preservation gates
+        run: node scripts/verify-pinned-real-ui-callpath.mjs
