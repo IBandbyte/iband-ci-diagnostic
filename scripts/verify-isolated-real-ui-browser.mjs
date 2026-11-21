@@ -28,5 +28,7 @@ try{
  assert.equal(await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").inputValue(),'');
  assert.deepEqual(errors,[]);
  console.log('GREEN REAL_PINNED_UI_BROWSER_RELOAD_NO_UNVERIFIED_DRAFT_ADOPTION');
+ assert.equal(await page.evaluate(()=>window.__isolatedTransportProbe()),true);
+ console.log('GREEN REAL_BROWSER_AUTHENTICATED_TRANSPORT_DENIAL_FAIL_CLOSED');
  console.log('HELD REAL_BROWSER_SERVER_AUTHORITY_SAVE_RELOAD_AND_ORIGINAL_FRONTEND_RED');
 }finally{await browser?.close();server.kill('SIGTERM')}
