@@ -3,6 +3,7 @@ on:
   push:
     branches: [verify/frontend-mongo-authority-integration-01]
     paths:
+      - '.github/workflows/isolated-physical-chromium-creator-persistence.yml'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
       - 'scripts/isolated-server-publication-provenance.mjs'
