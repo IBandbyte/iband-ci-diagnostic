@@ -10,6 +10,8 @@ on:
       - 'scripts/isolated-frontend-continuation-compatibility.mjs'
       - 'scripts/isolated-creator-http-transport.mjs'
       - 'scripts/isolated-browser-creator-http-adapter.mjs'
+      - 'scripts/isolated-studio-conversation-authority.mjs'
+      - 'scripts/verify-isolated-studio-conversation-authority.mjs'
       - 'scripts/verify-pinned-studio-conversation-authority-gap.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-orchestrator.mjs'
@@ -40,6 +42,8 @@ jobs:
           node-version: '22'
       - name: Verify isolated conversation settlement input contract
         run: node scripts/verify-isolated-conversation-settlement-contract.mjs
+      - name: Verify isolated fail-closed studio authority seam
+        run: node scripts/verify-isolated-studio-conversation-authority.mjs
       - name: Pin frontend source
         run: |
           git init frontend
