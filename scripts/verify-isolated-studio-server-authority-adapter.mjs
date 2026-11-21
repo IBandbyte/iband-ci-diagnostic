@@ -49,4 +49,26 @@ readResolvers[0]({projectId:'overlap-project',revision:2,conversation:[]});
 assert.equal((await olderInflight).published,false,'late older recovery must not overwrite newer publication');
 assert.deepEqual(overlappingPublications.map(x=>x.revision),[3]);
 console.log('GREEN STUDIO_ADAPTER_OVERLAPPING_RECOVERY_LATE_OLDER_REVISION_DENIED');
+let enterPublish;let releasePublish;
+const publishEntered=new Promise(resolve=>{enterPublish=resolve});
+const publishRelease=new Promise(resolve=>{releasePublish=resolve});
+const publicationEvents=[];
+const publishing=createStudioServerAuthorityAdapter({
+ settle:async()=>null,
+ readConfirmed:async()=>({projectId:'publication-race',revision:4,conversation:[]}),
+ publishConfirmed:async recovered=>{
+  publicationEvents.push('begin-'+recovered.revision);
+  enterPublish();
+  await publishRelease;
+  publicationEvents.push('commit-'+recovered.revision);
+ }
+});
+const publishingInflight=publishing.restore('publication-race');
+await publishEntered;
+publishing.stage({...input,projectId:'publication-race'});
+releasePublish();
+const publicationRace=await publishingInflight;
+assert.equal(publicationRace.published,false,'local edit during asynchronous publication must not be certified as confirmed');
+assert.equal(publicationEvents.includes('commit-4'),false,'stale asynchronous publication must not commit after local edit');
+console.log('GREEN STUDIO_ADAPTER_ASYNC_PUBLICATION_LOCAL_EDIT_FENCED');
 console.log('HELD REAL_CREATOR_WORKSPACE_WIRING_AND_ORIGINAL_FRONTEND_RED');
