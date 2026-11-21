@@ -3,7 +3,7 @@ import {createStudioConversationAuthority} from './isolated-studio-conversation-
 export function createStudioServerAuthorityAdapter({settle,readConfirmed,publishConfirmed}={}){
  if(typeof publishConfirmed!=='function')throw Error('confirmed-publication-required');
  const gate=createStudioConversationAuthority({settle,readConfirmed});
- const epochs=new Map(),pendingByProject=new Map();
+ const epochs=new Map(),pendingByProject=new Map(),confirmedRevisions=new Map();
  const bump=id=>{const n=(epochs.get(id)||0)+1;epochs.set(id,n);return n};
  const pending=id=>pendingByProject.get(id)||new Set();
  return Object.freeze({
@@ -24,7 +24,10 @@ export function createStudioServerAuthorityAdapter({settle,readConfirmed,publish
    const epoch=epochs.get(projectId)||0;
    const recovered=await gate.restore(projectId);
    if((epochs.get(projectId)||0)!==epoch||pending(projectId).size) return {status:'stale-local-change',published:false};
+   const last=confirmedRevisions.get(projectId);
+   if(last!==undefined&&recovered.revision<last)return {status:'stale-server-revision',published:false,revision:recovered.revision};
    await publishConfirmed(structuredClone(recovered));
+   confirmedRevisions.set(projectId,recovered.revision);
    return {status:'confirmed',published:true,revision:recovered.revision};
   },
   hasPending:(projectId,creatorTurnId)=>gate.hasPending(projectId,creatorTurnId)
