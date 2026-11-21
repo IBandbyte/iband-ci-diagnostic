@@ -13,6 +13,7 @@ on:
       - 'scripts/isolated-studio-conversation-authority.mjs'
       - 'scripts/verify-isolated-studio-conversation-authority.mjs'
       - 'scripts/verify-pinned-studio-conversation-authority-gap.mjs'
+      - 'scripts/verify-pinned-real-studio-handler-behavior.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-worker.mjs'
       - 'scripts/verify-isolated-conversation-sigkill-orchestrator.mjs'
       - 'scripts/verify-isolated-physical-conversation-settlement.mjs'
@@ -52,6 +53,8 @@ jobs:
           test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
       - name: Audit pinned real studio conversation authority gap
         run: node scripts/verify-pinned-studio-conversation-authority-gap.mjs
+      - name: Execute pinned real Studio handler characterization
+        run: node scripts/verify-pinned-real-studio-handler-behavior.mjs
       - name: Pin backend dependency
         run: |
           git init backend
