@@ -60,6 +60,8 @@ on:
       - 'scripts/isolated-server-original-red-project-selection.mjs'
       - 'scripts/verify-original-red-server-project-selection-worker.mjs'
       - 'scripts/verify-original-red-server-project-selection-orchestrator.mjs'
+      - 'scripts/isolated-studio-server-selection-adoption.mjs'
+      - 'scripts/verify-isolated-studio-server-selection-adoption.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -100,6 +102,8 @@ jobs:
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Verify isolated durable browser pending recovery contract
         run: node scripts/verify-isolated-browser-pending-rehydration.mjs
+      - name: Verify pinned Studio server-authorised selection adoption contract
+        run: node scripts/verify-isolated-studio-server-selection-adoption.mjs
       - name: Verify pinned real Studio handler adoption candidate contract
         run: node scripts/verify-isolated-studio-real-handler-adoption.mjs
       - name: Audit pinned real studio conversation authority gap
