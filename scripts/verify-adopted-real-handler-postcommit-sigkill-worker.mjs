@@ -70,7 +70,7 @@ try{
      if(phase==='postkill'){
       const durable=await receipts.findOne({projectId:input.projectId,operationId:input.operationId});
       assert.ok(durable&&durable.revision===2,'durable receipt before induced SIGKILL');
-      console.log('READY_TO_SIGKILL_AFTER_ADOPTED_HANDLER_MONGO_COMMIT_BEFORE_HTTP_RECEIPT');
+      console.log('MONGO_COMMIT_COMPLETE_HTTP_RECEIPT_HELD');
       // Keep the response open. Parent orchestrator sends a real SIGKILL.
       await new Promise(()=>{});
       return;
@@ -129,6 +129,7 @@ try{
    assert.doesNotMatch(await messageProjection.textContent(),/Confirmed next scene/);
    assert.equal(await page.evaluate(()=>globalThis.__diagnosticStudioPending?.has('film-a')||false),true);
    console.log('GREEN ADOPTED_HANDLER_MONGO_COMMITTED_NO_OPTIMISTIC_REACT_PUBLICATION');
+   console.log('READY_TO_SIGKILL_AFTER_ADOPTED_HANDLER_MONGO_COMMIT_BEFORE_HTTP_RECEIPT');
    // The server request is deliberately still hung; parent will SIGKILL us.
    await new Promise(()=>{});
   }else{
