@@ -47,6 +47,8 @@ on:
       - 'scripts/verify-isolated-real-studio-lifecycle-handoff.mjs'
       - 'scripts/verify-physical-pinned-studio-lifecycle-worker.mjs'
       - 'scripts/verify-physical-pinned-studio-lifecycle-orchestrator.mjs'
+      - 'scripts/isolated-studio-real-handler-adoption-candidate.mjs'
+      - 'scripts/verify-isolated-studio-real-handler-adoption.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -85,6 +87,8 @@ jobs:
           test "$(git -C frontend rev-parse HEAD)" = 344d98ff0c7e075a7e6530c8871670ad8044d220
       - name: Verify isolated exact-source Studio lifecycle handoff contract
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
+      - name: Verify pinned real Studio handler adoption candidate contract
+        run: node scripts/verify-isolated-studio-real-handler-adoption.mjs
       - name: Audit pinned real studio conversation authority gap
         run: node scripts/verify-pinned-studio-conversation-authority-gap.mjs
       - name: Execute pinned real Studio handler characterization
