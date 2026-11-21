@@ -30,6 +30,7 @@ on:
       - 'scripts/verify-isolated-creator-http-worker.mjs'
       - 'scripts/verify-isolated-creator-http-orchestrator.mjs'
       - '.github/workflows/isolated-authenticated-creator-http-transport.yml'
+      - '.github/workflows/isolated-physical-chromium-creator-persistence.yml'
       - 'scripts/verify-frontend-boundary-compatibility-worker.mjs'
       - 'scripts/verify-frontend-boundary-compatibility-orchestrator.mjs'
       - '.github/workflows/isolated-pinned-frontend-boundary-compatibility.yml'
