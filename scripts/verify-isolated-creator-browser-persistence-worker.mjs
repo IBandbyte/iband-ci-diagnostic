@@ -112,7 +112,7 @@ try{
   const {chromium}=await import('playwright');
   const {readFileSync}=await import('node:fs');
   const source=readFileSync('./pinned-creator-workspace.jsx','utf8');
-  const original=source.match(/const handleMovieMessage = \\(message\\) => \\{([\\s\\S]*?)\\n  \\};/);
+  const original=source.match(/const handleMovieMessage = \(message\) => \{([\s\S]*?)\n  \};/);
   assert.ok(original,'exact pinned CreatorWorkspace handler required');
   assert.match(original[0],/recordPendingCreatorMessage/);
   assert.match(original[0],/settleConversationMessage/);
@@ -151,7 +151,7 @@ try{
       const transport=createBrowserCreatorHttpAdapter({baseUrl:url,getBearerToken:async()=>owner});
       const state={pending:null,confirmed:null,error:null};
       const render=text=>{document.querySelector('#conversation').textContent=text};
-      const handler=new Function('state','render','transport','baseState','projectId','operationId',candidate+'\\nreturn handleMovieMessage;')(state,render,transport,baseState,projectId,operationId);
+      const handler=new Function('state','render','transport','baseState','projectId','operationId',candidate+'\nreturn handleMovieMessage;')(state,render,transport,baseState,projectId,operationId);
       const creator={id:'studio-browser-turn',role:'creator',text:'An ocean scene'};
       const mentor={id:'studio-browser-mentor',role:'mentor',text:'Let us plan that scene',metadata:{backendMetadata:{creatorTurnId:creator.id}}};
       handler(creator);
