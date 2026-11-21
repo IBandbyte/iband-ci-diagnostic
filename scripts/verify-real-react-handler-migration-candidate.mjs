@@ -31,7 +31,7 @@ function makeCourt({settlementStatus=200,readbackRevision=1,readbackProjectId='f
   ${match[0]}
   return {handleMovieMessage,setProject:project=>{activeMovieProject=project}};
  `);
- const instance=factory(authority,creator,mentor,{messages:fn=>display=fn(display),status:x=>status=x,notice:x=>notice=x},()=>activeMovieProject);
+ const instance=factory(authority,creator,mentor,{messages:next=>display=typeof next==='function'?next(display):next,status:x=>status=x,notice:x=>notice=x},()=>activeMovieProject);
  return {authority,instance,calls,get:()=>({display,status,notice}),creator,mentor};
 }
 const flush=async()=>{for(let i=0;i<6;i++)await new Promise(resolve=>setImmediate(resolve))};
