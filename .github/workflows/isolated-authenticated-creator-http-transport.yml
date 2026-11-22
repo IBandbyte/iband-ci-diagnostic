@@ -64,6 +64,8 @@ on:
       - 'scripts/verify-isolated-studio-server-selection-adoption.mjs'
       - 'scripts/verify-physical-studio-server-selection-worker.mjs'
       - 'scripts/verify-physical-studio-server-selection-orchestrator.mjs'
+      - 'scripts/verify-physical-selected-film-scene-continuation-worker.mjs'
+      - 'scripts/verify-physical-selected-film-scene-continuation-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -228,3 +230,6 @@ jobs:
           cp ../scripts/verify-physical-studio-server-selection-worker.mjs .
           cp ../scripts/verify-physical-studio-server-selection-orchestrator.mjs .
           node ./verify-physical-studio-server-selection-orchestrator.mjs
+          cp ../scripts/verify-physical-selected-film-scene-continuation-worker.mjs .
+          cp ../scripts/verify-physical-selected-film-scene-continuation-orchestrator.mjs .
+          node ./verify-physical-selected-film-scene-continuation-orchestrator.mjs
