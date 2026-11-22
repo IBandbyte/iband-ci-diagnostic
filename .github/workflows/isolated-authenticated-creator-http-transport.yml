@@ -68,6 +68,8 @@ on:
       - 'scripts/verify-physical-selected-film-scene-continuation-orchestrator.mjs'
       - 'scripts/isolated-application-recovery-adoption-boundary.mjs'
       - 'scripts/verify-isolated-application-recovery-adoption-boundary.mjs'
+      - 'scripts/verify-physical-application-recovery-readonly-worker.mjs'
+      - 'scripts/verify-physical-application-recovery-readonly-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -237,3 +239,7 @@ jobs:
           cp ../scripts/verify-physical-selected-film-scene-continuation-worker.mjs .
           cp ../scripts/verify-physical-selected-film-scene-continuation-orchestrator.mjs .
           node ./verify-physical-selected-film-scene-continuation-orchestrator.mjs
+          cp ../scripts/isolated-application-recovery-adoption-boundary.mjs .
+          cp ../scripts/verify-physical-application-recovery-readonly-worker.mjs .
+          cp ../scripts/verify-physical-application-recovery-readonly-orchestrator.mjs .
+          node ./verify-physical-application-recovery-readonly-orchestrator.mjs
