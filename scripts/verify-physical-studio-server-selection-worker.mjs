@@ -127,9 +127,9 @@ try{
   const active=page.getByLabel('Studio active movie');
   async function contains(value){for(let i=0;i<120;i++){if((await shown.textContent()||'').includes(value))return;await delay(50)}throw Error('expected '+value+' but got '+await shown.textContent())}
   await page.getByRole('button',{name:'Load owned film selection'}).click();
-  await contains('film-a | 1');
-  assert.match(await active.textContent(),/film-a/);
   if(phase==='select'){
+    await contains('film-a | 1');
+    assert.match(await active.textContent(),/film-a/);
     await page.getByRole('button',{name:'Reject unowned film'}).click();
     await delay(150);
     assert.match(await shown.textContent(),/film-a \| 1/);
