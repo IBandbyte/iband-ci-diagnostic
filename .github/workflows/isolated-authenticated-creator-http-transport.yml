@@ -62,6 +62,8 @@ on:
       - 'scripts/verify-physical-composed-application-studio-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-pinned-application-auth-route-adoption-blockers.mjs'
+      - 'scripts/isolated-application-studio-async-clerk-session-adapter.mjs'
+      - 'scripts/verify-isolated-application-studio-async-clerk-session-adapter.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -195,6 +197,8 @@ jobs:
         run: node scripts/verify-isolated-application-owned-studio-service-composition.mjs
       - name: Audit pinned real Studio route and async Clerk token adoption blockers
         run: node scripts/verify-pinned-application-auth-route-adoption-blockers.mjs
+      - name: Verify async Clerk-backed Studio session composition and token-rotation denial
+        run: node scripts/verify-isolated-application-studio-async-clerk-session-adapter.mjs
       - name: Pin backend dependency
         run: |
           git init backend
