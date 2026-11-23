@@ -8,7 +8,7 @@ const workspace=readFileSync('./frontend/src/components/studio/CreatorWorkspace.
 assert.match(original,/assert\.equal\(cleared\.acquired, true\)/);
 assert.doesNotMatch(workspace,/__migratedSecondFilmCaller|__diagnosticFencedRequest/);
 let bytes='persisted-original-film-a',selected='film-a',mode='selection-verified',switched=0;
-let admission=false,interrupt=false,mutateDuringSwitch=false;
+let admission=false,interrupt=false,mutateDuringSwitch=false,mutateDuringAdmission=false;
 const calls=[],readonlyViews=[],editableViews=[];
 const localMemory={getState:()=>({journey:{activeProjectId:'film-a'}})};
 const continuity={
@@ -33,6 +33,7 @@ const continuity={
   },
   async requestEditing({token,selectionVaultId,operationId}){
     calls.push('admit');
+    if(mutateDuringAdmission)bytes='forged-during-admission';
     if(!admission||token!=='owner'||selectionVaultId!=='vault')return {ok:false};
     mode='server-editable';
     return {ok:true,view:{...continuity.getSnapshot(),operationId,fence:'server-fence',
@@ -80,6 +81,27 @@ assert.equal(switched,before);
 assert.equal(boundary.getEditable(),null);
 assert.equal(bytes,'persisted-original-film-a');
 console.log('GREEN APPLICATION_OWNED_FRESH_REOPEN_READ_ONLY_NO_SECOND_SELECTION');
+
+// Neither stale local bytes nor tampering while awaiting server admission
+// may convert a read-only preview into an editable application project.
+bytes='forged-after-read-only';
+const beforeTamperCalls=calls.length;
+result=await boundary.requestEditing({token:'owner',selectionVaultId:'vault',operationId:'adopt-tampered'});
+assert.deepEqual(result,{ok:false,reason:'local-memory-changed-before-admission'});
+assert.equal(calls.length,beforeTamperCalls,'tampered local memory must not contact editor authority');
+assert.equal(boundary.getEditable(),null);
+assert.equal(boundary.getReadOnly(),null);
+bytes='persisted-original-film-a';mode='selection-verified';
+result=await boundary.reopen({token:'owner',selectionVaultId:'vault',projectId:'film-b'});
+assert.equal(result.ok,true);
+mutateDuringAdmission=true;
+result=await boundary.requestEditing({token:'owner',selectionVaultId:'vault',operationId:'adopt-raced'});
+assert.deepEqual(result,{ok:false,reason:'local-memory-changed-during-admission'});
+assert.equal(boundary.getEditable(),null);
+assert.equal(boundary.getReadOnly(),null);
+mutateDuringAdmission=false;
+bytes='persisted-original-film-a';mode='selection-verified';
+console.log('GREEN APPLICATION_OWNED_PRE_AND_POST_ADMISSION_LOCAL_WITNESS_TAMPER_DENIAL');
 
 result=await boundary.reopen({token:'intruder',selectionVaultId:'vault',projectId:'film-b'});
 assert.equal(result.ok,false);
