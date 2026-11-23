@@ -56,6 +56,7 @@ on:
       - 'scripts/isolated-application-owned-second-film-boundary.mjs'
       - 'scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs'
       - 'scripts/isolated-pinned-application-owned-conversation-bridge.mjs'
+      - 'scripts/isolated-pinned-application-recovery-service-injection.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -337,6 +338,7 @@ jobs:
           node ./verify-physical-migrated-second-film-react-orchestrator.mjs
           cp ../scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs .
           cp ../scripts/isolated-pinned-application-owned-conversation-bridge.mjs .
+          cp ../scripts/isolated-pinned-application-recovery-service-injection.mjs .
           cp ../scripts/isolated-application-owned-second-film-boundary.mjs .
           cp ../scripts/verify-physical-application-owned-second-film-react-worker.mjs .
           cp ../scripts/verify-physical-application-owned-second-film-react-orchestrator.mjs .
