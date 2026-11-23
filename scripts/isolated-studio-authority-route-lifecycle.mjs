@@ -5,12 +5,12 @@ export function createStudioAuthorityRouteLifecycle({
 }={}){
  if([getAuthState,subscribeAuth,createSession,onReady,onDenied].some(x=>typeof x!=='function'))
   throw Error('studio-route-lifecycle-dependencies-required');
- let epoch=0,session=null,unsubscribe=null,active=false;
+ let epoch=0,session=null,readyServices=null,unsubscribe=null,active=false;
  const eligible=state=>state?.isLoaded===true&&state?.isSignedIn===true
    &&typeof state?.getToken==='function';
  const clear=()=>{
    epoch++;
-   const prior=session;session=null;
+   const prior=session;session=null;readyServices=null;
    try{prior?.invalidate()}catch{}
    onReady(null);
  };
@@ -42,7 +42,8 @@ export function createStudioAuthorityRouteLifecycle({
    if(result?.ok!==true||!result.services){
      clear();onDenied('studio-auth-unverified');return;
    }
-   onReady(result.services);
+   readyServices=result.services;
+   onReady(readyServices);
  }
  function start(){
    if(active)throw Error('studio-route-already-started');
@@ -59,5 +60,5 @@ export function createStudioAuthorityRouteLifecycle({
    const cleanup=unsubscribe;unsubscribe=null;
    try{cleanup?.()}finally{clear()}
  }
- return Object.freeze({start,stop,getCurrent:()=>session?.getServices?.()||null});
+ return Object.freeze({start,stop,getCurrent:()=>readyServices});
 }
