@@ -49,7 +49,7 @@ assert.equal(instances.length,0);
 assert.equal(lifecycle.getCurrent(),null);
 state={isLoaded:true,isSignedIn:true,getToken:tokenA};notify();
 assert.equal(instances.length,1);
-assert.equal(lifecycle.getCurrent()?.id,0);
+assert.equal(lifecycle.getCurrent(),null,'async unresolved auth must not be exposed as ready');
 state={isLoaded:true,isSignedIn:true,getToken:tokenB};notify();
 assert.equal(instances[0].invalidated,true);
 assert.equal(instances.length,2);
