@@ -39,6 +39,8 @@ on:
       - 'scripts/verify-original-frontend-publication-red-control.mjs'
       - 'scripts/verify-original-frontend-continuity-server-selection-reconciliation.mjs'
       - 'scripts/verify-original-continuity-application-adoption-court.mjs'
+      - 'scripts/verify-physical-original-continuity-react-worker.mjs'
+      - 'scripts/verify-physical-original-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
       - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
       - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
@@ -273,3 +275,6 @@ jobs:
           node ./verify-original-frontend-continuity-server-selection-reconciliation.mjs
           cp ../scripts/verify-original-continuity-application-adoption-court.mjs .
           node ./verify-original-continuity-application-adoption-court.mjs
+          cp ../scripts/verify-physical-original-continuity-react-worker.mjs .
+          cp ../scripts/verify-physical-original-continuity-react-orchestrator.mjs .
+          node ./verify-physical-original-continuity-react-orchestrator.mjs
