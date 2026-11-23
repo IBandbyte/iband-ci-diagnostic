@@ -57,6 +57,8 @@ on:
       - 'scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs'
       - 'scripts/isolated-pinned-application-owned-conversation-bridge.mjs'
       - 'scripts/isolated-pinned-application-recovery-service-injection.mjs'
+      - 'scripts/isolated-application-owned-studio-service-composition.mjs'
+      - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -186,6 +188,8 @@ jobs:
         run: node scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs
       - name: Audit application adoption readiness and independently reproduce original line-71 RED
         run: node scripts/verify-source-anchored-application-adoption-readiness.mjs
+      - name: Verify application-owned Studio service composition via authenticated transport
+        run: node scripts/verify-isolated-application-owned-studio-service-composition.mjs
       - name: Pin backend dependency
         run: |
           git init backend
