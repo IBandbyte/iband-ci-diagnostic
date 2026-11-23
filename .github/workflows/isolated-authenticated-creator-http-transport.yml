@@ -37,6 +37,7 @@ on:
       - 'scripts/verify-migrated-real-handler-physical-worker.mjs'
       - 'scripts/verify-migrated-real-handler-physical-orchestrator.mjs'
       - 'scripts/verify-original-frontend-publication-red-control.mjs'
+      - 'scripts/verify-original-frontend-continuity-server-selection-reconciliation.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
       - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
       - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
@@ -267,3 +268,5 @@ jobs:
           cp ../scripts/verify-physical-pinned-fenced-conversation-worker.mjs .
           cp ../scripts/verify-physical-pinned-fenced-conversation-orchestrator.mjs .
           node ./verify-physical-pinned-fenced-conversation-orchestrator.mjs
+          cp ../scripts/verify-original-frontend-continuity-server-selection-reconciliation.mjs .
+          node ./verify-original-frontend-continuity-server-selection-reconciliation.mjs
