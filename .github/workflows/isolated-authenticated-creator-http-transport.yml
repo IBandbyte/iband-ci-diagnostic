@@ -52,6 +52,9 @@ on:
       - 'scripts/verify-original-continuity-red-server-reconciliation.mjs'
       - 'scripts/isolated-original-continuity-second-film-migration.mjs'
       - 'scripts/verify-isolated-original-second-film-source-migration.mjs'
+      - 'scripts/isolated-pinned-react-second-film-caller-bridge.mjs'
+      - 'scripts/verify-physical-migrated-second-film-react-worker.mjs'
+      - 'scripts/verify-physical-migrated-second-film-react-orchestrator.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-worker.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
@@ -309,3 +312,9 @@ jobs:
           cp ../scripts/verify-physical-native-recovery-react-worker.mjs .
           cp ../scripts/verify-physical-native-recovery-react-orchestrator.mjs .
           node ./verify-physical-native-recovery-react-orchestrator.mjs
+          cp ../scripts/isolated-original-continuity-second-film-migration.mjs .
+          cp ../scripts/isolated-pinned-react-second-film-caller-bridge.mjs .
+          cp ../scripts/verify-physical-migrated-second-film-react-worker.mjs .
+          cp ../scripts/verify-physical-migrated-second-film-react-orchestrator.mjs .
+          cp ../scripts/isolated-pinned-native-studio-recovery-bridge.mjs .
+          node ./verify-physical-migrated-second-film-react-orchestrator.mjs
