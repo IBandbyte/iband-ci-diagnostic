@@ -61,6 +61,7 @@ on:
       - 'scripts/verify-physical-composed-application-studio-react-worker.mjs'
       - 'scripts/verify-physical-composed-application-studio-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
+      - 'scripts/verify-pinned-application-auth-route-adoption-blockers.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -192,6 +193,8 @@ jobs:
         run: node scripts/verify-source-anchored-application-adoption-readiness.mjs
       - name: Verify application-owned Studio service composition via authenticated transport
         run: node scripts/verify-isolated-application-owned-studio-service-composition.mjs
+      - name: Audit pinned real Studio route and async Clerk token adoption blockers
+        run: node scripts/verify-pinned-application-auth-route-adoption-blockers.mjs
       - name: Pin backend dependency
         run: |
           git init backend
