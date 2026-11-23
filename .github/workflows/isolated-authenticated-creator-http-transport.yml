@@ -53,6 +53,8 @@ on:
       - 'scripts/isolated-original-continuity-second-film-migration.mjs'
       - 'scripts/verify-isolated-original-second-film-source-migration.mjs'
       - 'scripts/verify-pinned-second-film-application-source-candidate.mjs'
+      - 'scripts/isolated-application-owned-second-film-boundary.mjs'
+      - 'scripts/verify-isolated-application-owned-second-film-boundary.mjs'
       - 'scripts/isolated-pinned-react-second-film-caller-bridge.mjs'
       - 'scripts/verify-physical-migrated-second-film-react-worker.mjs'
       - 'scripts/verify-physical-migrated-second-film-react-orchestrator.mjs'
@@ -171,6 +173,8 @@ jobs:
         run: node scripts/verify-real-react-handler-migration-candidate.mjs
       - name: Verify pinned second-film application source migration candidate (original RED held)
         run: node scripts/verify-pinned-second-film-application-source-candidate.mjs
+      - name: Verify application-owned second-film injected authority boundary
+        run: node scripts/verify-isolated-application-owned-second-film-boundary.mjs
       - name: Pin backend dependency
         run: |
           git init backend
