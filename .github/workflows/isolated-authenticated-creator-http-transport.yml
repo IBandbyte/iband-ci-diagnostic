@@ -43,6 +43,8 @@ on:
       - 'scripts/verify-physical-original-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-studio-continuity-migration-candidate.mjs'
       - 'scripts/verify-isolated-studio-continuity-migration-candidate.mjs'
+      - 'scripts/verify-physical-consolidated-continuity-react-worker.mjs'
+      - 'scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
       - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
       - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
@@ -282,3 +284,7 @@ jobs:
           cp ../scripts/verify-physical-original-continuity-react-worker.mjs .
           cp ../scripts/verify-physical-original-continuity-react-orchestrator.mjs .
           node ./verify-physical-original-continuity-react-orchestrator.mjs
+          cp ../scripts/isolated-studio-continuity-migration-candidate.mjs .
+          cp ../scripts/verify-physical-consolidated-continuity-react-worker.mjs .
+          cp ../scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs .
+          node ./verify-physical-consolidated-continuity-react-orchestrator.mjs
