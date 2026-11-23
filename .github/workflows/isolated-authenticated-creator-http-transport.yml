@@ -56,6 +56,7 @@ on:
       - 'scripts/isolated-application-owned-second-film-boundary.mjs'
       - 'scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs'
       - 'scripts/isolated-pinned-application-owned-conversation-bridge.mjs'
+      - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-second-film-boundary.mjs'
@@ -179,6 +180,8 @@ jobs:
         run: node scripts/verify-pinned-second-film-application-source-candidate.mjs
       - name: Verify application-owned second-film injected authority boundary
         run: node scripts/verify-isolated-application-owned-second-film-boundary.mjs
+      - name: Verify native application-owned conversation denies missing services
+        run: node scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs
       - name: Pin backend dependency
         run: |
           git init backend
