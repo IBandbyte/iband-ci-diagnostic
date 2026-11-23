@@ -9,9 +9,9 @@ export function createApplicationSecondFilmBoundary({
     typeof selectSecondFilm!=='function'||typeof readLocalBytes!=='function'||
     typeof onReadOnly!=='function'||typeof onEditable!=='function')
     throw Error('application-second-film-dependencies-required');
-  let epoch=0,readonly=null,editable=null;
+  let epoch=0,readonly=null,editable=null,localWitness=null;
   const copy=x=>x?structuredClone(x):null;
-  const invalidate=()=>{epoch++;readonly=null;editable=null;onReadOnly(null);onEditable(null)};
+  const invalidate=()=>{epoch++;readonly=null;editable=null;localWitness=null;onReadOnly(null);onEditable(null)};
   async function choose({token,selectionVaultId,nextProjectId,selectionOperationId,localMemory}={}){
     invalidate();
     const my=epoch;
@@ -39,6 +39,7 @@ export function createApplicationSecondFilmBoundary({
       if(view?.projectId!==nextProjectId||view.mode!=='read-only'||
          view.writable!==false)return {ok:false,reason:'read-only-view-unverified'};
       readonly=copy(view);
+      localWitness=bytes;
       onReadOnly(copy(readonly));
       return {ok:true,view:copy(readonly)};
     }catch{return {ok:false,reason:'selection-authority-unavailable'}}
@@ -59,6 +60,7 @@ export function createApplicationSecondFilmBoundary({
          recovered.view?.mode!=='read-only'||recovered.view?.writable!==false||
          readLocalBytes()!==bytes)return {ok:false,reason:'recovery-denied'};
       readonly=copy(recovered.view);
+      localWitness=bytes;
       onReadOnly(copy(readonly));
       return {ok:true,view:copy(readonly)};
     }catch{return {ok:false,reason:'recovery-authority-unavailable'}}
@@ -68,9 +70,18 @@ export function createApplicationSecondFilmBoundary({
     if(!proof||proof.mode!=='read-only'||proof.writable!==false||
        !token||!selectionVaultId||!operationId)
       return {ok:false,reason:'read-only-proof-required'};
+    // Read-only projection never authorises a locally changed publication outbox.
+    if(localWitness===null||readLocalBytes()!==localWitness){
+      invalidate();
+      return {ok:false,reason:'local-memory-changed-before-admission'};
+    }
     try{
       const result=await continuity.requestEditing({token,selectionVaultId,operationId});
       if(my!==epoch)return {ok:false,reason:'stale-admission'};
+      if(readLocalBytes()!==localWitness){
+        invalidate();
+        return {ok:false,reason:'local-memory-changed-during-admission'};
+      }
       if(result?.ok!==true||result.view?.projectId!==proof.projectId||
          result.view?.mode!=='server-editable'||result.view?.writable!==true||
          result.view?.serverOwned!==true||!result.view?.fence||
