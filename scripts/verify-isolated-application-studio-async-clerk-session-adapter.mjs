@@ -54,7 +54,7 @@ assert.equal(newSession.services.studioServices.pending.creator.id,'pending-unco
 session.invalidate();
 assert.equal(session.getServices(),null);
 assert.equal(newSession.services.studioServices.pending,null);
-await assert.rejects(()=>newSession.services.studioServices.request('/studio/read',{projectId:'film-b'}),
+assert.throws(()=>newSession.services.studioServices.request('/studio/read',{projectId:'film-b'}),
  /owner-token-unavailable|stale-authenticated-studio-session/);
 assert.equal(networkCalls,2);
 console.log('GREEN ASYNC_CLERK_REAUTH_RECOMPOSES_AND_EXPLICIT_INVALIDATION_DENIES_STALE_WRITES');
