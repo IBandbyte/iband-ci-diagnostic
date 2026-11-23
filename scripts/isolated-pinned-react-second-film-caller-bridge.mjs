@@ -7,10 +7,20 @@ export function transformPinnedMigratedSecondFilmRecovery(source){
  let migrated=transformPinnedNativeRecoveryControls(source);
  const start='      const opened = await controller.open({token, selectionVaultId});';
  const end='      setRecoveryStatus("preview-ready");';
- assert.equal(migrated.split(start).length,2,'pinned native opened boundary drift');
- assert.equal(migrated.split(end).length,2,'pinned native projection boundary drift');
- const before=migrated.indexOf(start),after=migrated.indexOf(end,before);
- assert.ok(after>before,'pinned native verified recovery order drift');
+ // The original native preview independently sets "preview-ready". Only
+ // the inserted server-authorised handler is the intended projection boundary.
+ const handlerStart='const requestVerifiedServerFilm = async () => {';
+ const handlerEnd='const requestVerifiedServerEditing = async () => {';
+ assert.equal(migrated.split(handlerStart).length,2,'pinned verified recovery handler drift');
+ assert.equal(migrated.split(handlerEnd).length,2,'pinned verified editing handler drift');
+ const scopeStart=migrated.indexOf(handlerStart);
+ const scopeEnd=migrated.indexOf(handlerEnd,scopeStart);
+ assert.ok(scopeEnd>scopeStart,'pinned verified handler order drift');
+ const handler=migrated.slice(scopeStart,scopeEnd);
+ assert.equal(handler.split(start).length,2,'pinned native opened boundary drift');
+ assert.equal(handler.split(end).length,2,'pinned native projection boundary drift');
+ const before=migrated.indexOf(start,scopeStart),after=migrated.indexOf(end,before);
+ assert.ok(after>before && after<scopeEnd,'pinned native verified recovery order drift');
  const replacement=`      const oldProjectId = activeMovieProject?.id || null;
       const current = await controller.open({token,selectionVaultId});
       if (!current?.ok || !current.view?.projectId)
