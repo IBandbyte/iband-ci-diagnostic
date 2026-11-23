@@ -48,7 +48,16 @@ export function createApplicationOwnedStudioServices({
  const continuity=createIsolatedStudioContinuityMigration({selection,recovery,editable,onView});
  const applicationSecondFilm=createApplicationSecondFilmBoundary({
   continuity,selectSecondFilm:selectSecondFilmWithServerAuthority,
-  readLocalBytes,onReadOnly,onEditable
+  readLocalBytes,onReadOnly,
+  // Editing projection can arrive from both the canonical admission receipt
+  // (revision) and the continuity view (projectRevision). Preserve the
+  // verified server revision in the UI-facing shape; never mint permission.
+  onEditable:view=>{
+   if(view===null){onEditable(null);return;}
+   if(view.serverOwned!==true||view.writable!==true||!view.fence||
+      !Number.isSafeInteger(view.projectRevision))return;
+   onEditable({...view,revision:view.projectRevision});
+  }
  });
  // Pending turn lives with the application service instance, not on window.
  let pending=null;
