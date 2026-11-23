@@ -28,7 +28,7 @@ const service=createApplicationOwnedStudioServices({
  readLocalBytes:()=> 'original-bytes'
 });
 assert.throws(()=>service.recoveryServices(),/owner-token-unavailable/);
-await assert.rejects(
+assert.throws(
  ()=>service.studioServices.request('/studio/selection-read',{projectId:'vault'}),
  /owner-token-unavailable/);
 assert.equal(called,0,'a promise must never be sent as an Authorization bearer header');
