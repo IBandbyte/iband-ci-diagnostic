@@ -20,7 +20,16 @@ export function transformPinnedApplicationOwnedConversationHandler(source){
    assert.ok(patched.includes(legacy),'pinned handler diagnostic seam drift: '+legacy);
    patched=patched.replaceAll(legacy,injected);
  }
+ const handlerStart='const handleMovieMessage = (message) => {';
+ assert.equal(patched.split(handlerStart).length,2,'native handler insertion drift');
+ patched=patched.replace(handlerStart,handlerStart+`
+    // A missing application service must deny, never fall back to a local writer.
+    if (!studioServices?.editable || !studioServices?.selection ||
+        typeof studioServices?.request !== "function") {
+      setProjectStatus("error"); return;
+    }`);
  assert.doesNotMatch(patched,/globalThis\.__/,'no diagnostics globals in native conversation handler');
+ assert.match(patched,/if \(!studioServices\?\.editable \|\| !studioServices\?\.selection/);
  assert.doesNotMatch(patched,/recordPendingCreatorMessage|settleConversationMessage/,
    'no legacy memory writes in server-fenced conversation');
  assert.match(patched,/studioServices\.editable\?\.getSnapshot/);
