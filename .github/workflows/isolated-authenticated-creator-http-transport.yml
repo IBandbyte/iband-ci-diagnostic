@@ -54,6 +54,9 @@ on:
       - 'scripts/verify-isolated-original-second-film-source-migration.mjs'
       - 'scripts/verify-pinned-second-film-application-source-candidate.mjs'
       - 'scripts/isolated-application-owned-second-film-boundary.mjs'
+      - 'scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs'
+      - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
+      - 'scripts/verify-physical-application-owned-second-film-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-second-film-boundary.mjs'
       - 'scripts/isolated-pinned-react-second-film-caller-bridge.mjs'
       - 'scripts/verify-physical-migrated-second-film-react-worker.mjs'
@@ -325,3 +328,8 @@ jobs:
           cp ../scripts/verify-physical-migrated-second-film-react-orchestrator.mjs .
           cp ../scripts/isolated-pinned-native-studio-recovery-bridge.mjs .
           node ./verify-physical-migrated-second-film-react-orchestrator.mjs
+          cp ../scripts/isolated-pinned-application-owned-second-film-react-bridge.mjs .
+          cp ../scripts/isolated-application-owned-second-film-boundary.mjs .
+          cp ../scripts/verify-physical-application-owned-second-film-react-worker.mjs .
+          cp ../scripts/verify-physical-application-owned-second-film-react-orchestrator.mjs .
+          node ./verify-physical-application-owned-second-film-react-orchestrator.mjs
