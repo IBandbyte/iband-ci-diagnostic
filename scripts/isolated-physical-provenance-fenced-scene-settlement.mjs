@@ -1,7 +1,7 @@
 // Isolated physical editor for an already admitted, provenance-fenced Film B.
 // One transaction owns canonical state, project scene and idempotent receipt.
 // This MUST NOT be wired into application main or production databases.
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 export function createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts}={}){
  if(!client||!gate||!projects||!receipts)throw Error('physical-settlement-dependencies-required');
@@ -35,13 +35,16 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
     if(canonical.revision!==expectedRevision||!Array.isArray(project.state?.scenes)||
       project.state.scenes.some(s=>s.id===scene.id))return;
     const nextScenes=[...project.state.scenes,scene];
-    const nextState={...canonical.state,content:{...canonical.state.content,scenes:nextScenes}};
+    const entry={id:randomUUID(),status:'pending',committedStateVersion:canonical.state.durablePublicationOutbox.length+1,snapshotDigest:digest({content:{scenes:nextScenes},revision:expectedRevision+1})};
+    const outbox=[...canonical.state.durablePublicationOutbox,entry];
+    const nextState={...canonical.state,content:{...canonical.state.content,scenes:nextScenes},durablePublicationOutbox:outbox};
     const projectUpdate=await projects.updateOne({_id:projectId,ownerId,revision:expectedRevision},
       {$set:{revision:expectedRevision+1,state:{scenes:nextScenes}}},{session});
     if(projectUpdate.matchedCount!==1)throw Error('project-revision-race');
     const canonicalUpdate=await gate.states.updateOne({_id:canonical._id,revision:expectedRevision,
       activeWriterFence:fence,revoked:false},{$set:{revision:expectedRevision+1,state:nextState}},{session});
     if(canonicalUpdate.matchedCount!==1)throw Error('canonical-revision-race');
+    await gate.ledger.insertOne({projectId,operationId,ownerId,ownershipRevision:canonical.ownershipRevision,revision:expectedRevision+1,entry,fullOutboxDigest:digest(outbox),stateDigest:digest(nextState)},{session});
     const commitId=digest({projectId,operationId,ownerId,fence,revision:expectedRevision+1,scene});
     await receipts.insertOne({projectId,operationId,ownerId,fence,admissionId,expectedRevision,
       revision:expectedRevision+1,scene,commitId,state:{scenes:nextScenes}},{session});
