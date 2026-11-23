@@ -70,6 +70,8 @@ on:
       - 'scripts/verify-isolated-application-recovery-adoption-boundary.mjs'
       - 'scripts/verify-physical-application-recovery-readonly-worker.mjs'
       - 'scripts/verify-physical-application-recovery-readonly-orchestrator.mjs'
+      - 'scripts/isolated-application-editable-adoption-boundary.mjs'
+      - 'scripts/verify-isolated-application-editable-adoption.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -110,6 +112,8 @@ jobs:
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Verify isolated durable browser pending recovery contract
         run: node scripts/verify-isolated-browser-pending-rehydration.mjs
+      - name: Verify source-pinned application editable adoption grant and fence contract
+        run: node scripts/verify-isolated-application-editable-adoption.mjs
       - name: Verify pinned application recovery adoption remains read-only until authoritative admission
         run: node scripts/verify-isolated-application-recovery-adoption-boundary.mjs
       - name: Verify pinned Studio server-authorised selection adoption contract
