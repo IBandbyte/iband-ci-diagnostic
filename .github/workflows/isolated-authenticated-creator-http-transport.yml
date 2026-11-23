@@ -59,6 +59,8 @@ on:
       - 'scripts/isolated-pinned-application-recovery-service-injection.mjs'
       - 'scripts/isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-physical-composed-application-studio-react-worker.mjs'
+      - 'scripts/verify-physical-async-authenticated-studio-react-worker.mjs'
+      - 'scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs'
       - 'scripts/verify-physical-composed-application-studio-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-pinned-application-auth-route-adoption-blockers.mjs'
@@ -360,3 +362,7 @@ jobs:
           cp ../scripts/verify-physical-composed-application-studio-react-worker.mjs .
           cp ../scripts/verify-physical-composed-application-studio-react-orchestrator.mjs .
           node ./verify-physical-composed-application-studio-react-orchestrator.mjs
+          cp ../scripts/isolated-application-studio-async-clerk-session-adapter.mjs .
+          cp ../scripts/verify-physical-async-authenticated-studio-react-worker.mjs .
+          cp ../scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs .
+          node ./verify-physical-async-authenticated-studio-react-orchestrator.mjs
