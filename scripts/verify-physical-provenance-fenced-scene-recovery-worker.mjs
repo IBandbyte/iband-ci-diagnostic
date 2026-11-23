@@ -177,7 +177,7 @@ try{
    assert.equal((await projects.findOne({_id:'film-b'})).revision,5);
    assert.equal((await provenance.states.findOne({projectId:'film-b'})).revision,5);
    assert.equal(await provenance.ledger.countDocuments({projectId:'film-b'}),5);
-   assert.equal((await selectionGate.readAdmission({token:process.env.OWNER_TOKEN,projectId:'film-b',operationId:'adopt-film-b',fence:f}))?.revision,4);
+   assert.equal(await selectionGate.readAdmission({token:process.env.OWNER_TOKEN,projectId:'film-b',operationId:'adopt-film-b',fence:f}),null,'prewrite admission snapshot must not be misrepresented as current revision after settlement');
    assert.match(await local.textContent(),/film-a/);
    assert.equal(await receipts.countDocuments({projectId:'film-a'}),0);
    assert.equal(await grants.countDocuments({projectId:'film-b'}),0);
