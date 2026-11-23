@@ -4,6 +4,7 @@ import {readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 const phase=process.argv[2],projectId='atomic-ui-project',operationId='atomic-ui-operation';
+const physicalAuthorityPort=Number(process.env.INTEGRATED_REACT_SIGKILL_PORT||53861);
 const client=new MongoClient(process.env.MONGO_URI,{serverSelectionTimeoutMS:12000});await client.connect();
 const db=client.db(['seed-pre','prekill','verify-pre'].includes(phase)?'isolated_integrated_react_kill_pre':'isolated_integrated_react_kill_post');
 const projects=db.collection('projects'),receipts=db.collection('receipts');
@@ -52,7 +53,7 @@ try{
   writeFileSync(files[0],candidate);
   writeFileSync(files[1],'import React from "react";import {createRoot} from "react-dom/client";import CreatorWorkspace from "./src/components/studio/__atomic_ui_candidate.jsx";createRoot(document.getElementById("root")).render(<CreatorWorkspace creatorName="Diagnostic Creator"/>);');
   writeFileSync(files[2],'<html><body><div id="root"></div><script type="module" src="/__atomic_ui_candidate.jsx"></script></body></html>');
-  writeFileSync(files[3],'import {defineConfig} from "vite";import react from "@vitejs/plugin-react-swc";export default defineConfig({plugins:[react()],server:{proxy:{"/conversation":{target:"http://127.0.0.1:'+52760+'",changeOrigin:true}}}});');
+  writeFileSync(files[3],'import {defineConfig} from "vite";import react from "@vitejs/plugin-react-swc";export default defineConfig({plugins:[react()],server:{proxy:{"/conversation":{target:"http://127.0.0.1:'+physicalAuthorityPort+'",changeOrigin:true}}}});');
   vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port','52759','--strictPort','--config','__atomic_ui_vite.config.mjs'],{cwd:'../frontend',stdio:['ignore','pipe','pipe']});
   let output='';vite.stdout.on('data',x=>output+=x);vite.stderr.on('data',x=>output+=x);
   let ready=false;
@@ -85,7 +86,7 @@ try{
    assert.equal((await projects.findOne({_id:projectId})).conversation.length,2);
    console.log('GREEN ATOMIC_REACT_BROWSER_FRESH_PROCESS_CONFIRMED_TWO_MESSAGE_RECOVERY');
    const input={projectId,operationId,creatorTurnId:'atomic-ui-turn',expectedRevision:0,creatorMessage:{id:'atomic-ui-turn',role:'creator',text:'First movie scene'},mentorMessage:{id:'atomic-ui-mentor',role:'mentor',text:'Opening shot',metadata:{backendMetadata:{creatorTurnId:'atomic-ui-turn'}}}};
-   const replay=await fetch('http://127.0.0.1:'+52760+'/conversation/settle',{method:'POST',headers:{authorization:'Bearer '+process.env.OWNER_TOKEN,'content-type':'application/json'},body:JSON.stringify(input)});
+   const replay=await fetch('http://127.0.0.1:'+physicalAuthorityPort+'/conversation/settle',{method:'POST',headers:{authorization:'Bearer '+process.env.OWNER_TOKEN,'content-type':'application/json'},body:JSON.stringify(input)});
    assert.equal(replay.status,200);assert.equal((await replay.json()).committedRevision,1);
    assert.equal(await receipts.countDocuments({projectId}),1);
    console.log('GREEN ATOMIC_REACT_BROWSER_EXACTLY_ONCE_REPLAY');
