@@ -20,7 +20,8 @@ const transport=async({path,token:author,body})=>{
   if(body.projectId!=='vault'||body.nextActiveProjectId!=='film-b'||
      !body.operationId)return {ok:false};
   selected='film-b';selectionRevision++;
-  return {ok:true,projectId:'vault',activeProjectId:selected,revision:selectionRevision};
+  return {ok:true,receipt:{projectId:'vault',operationId:body.operationId,
+    committedRevision:selectionRevision,serverCommitId:'signed-selection-'+body.operationId}};
  }
  if(path==='/studio/read')
   return body.projectId==='film-b'?
@@ -87,7 +88,7 @@ assert.equal(app.applicationSecondFilm.getReadOnly(),null);
 console.log('GREEN APP_COMPOSITION_LOCAL_MEMORY_TAMPER_DENIED');
 token='';
 assert.throws(()=>app.recoveryServices(),/owner-token-unavailable/);
-await assert.rejects(()=>services.request('/studio/fenced-save',{projectId:'film-b'}),/owner-token-unavailable/);
+assert.throws(()=>services.request('/studio/fenced-save',{projectId:'film-b'}),/owner-token-unavailable/);
 app.invalidate();
 assert.equal(services.pending,null);
 assert.equal(app.getContinuity(),null);
