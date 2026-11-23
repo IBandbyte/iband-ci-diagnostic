@@ -17,5 +17,6 @@ const {server}=createIsolatedConversationHttpAuthority({
  beforeCommitBarrier:mode==='prekill'?barrier('READY_TO_KILL_BEFORE_COMMIT'):null,
  afterCommitBarrier:mode==='postkill'?barrier('READY_TO_KILL_AFTER_COMMIT'):null
 });
-await new Promise(resolve=>server.listen(52760,'127.0.0.1',resolve));
+const physicalAuthorityPort=Number(process.env.INTEGRATED_REACT_SIGKILL_PORT||53861);
+await new Promise(resolve=>server.listen(physicalAuthorityPort,'127.0.0.1',resolve));
 console.log('INTEGRATED_SERVER_LISTENING '+mode);
