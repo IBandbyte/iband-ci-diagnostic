@@ -58,6 +58,8 @@ on:
       - 'scripts/isolated-pinned-application-owned-conversation-bridge.mjs'
       - 'scripts/isolated-pinned-application-recovery-service-injection.mjs'
       - 'scripts/isolated-application-owned-studio-service-composition.mjs'
+      - 'scripts/verify-physical-composed-application-studio-react-worker.mjs'
+      - 'scripts/verify-physical-composed-application-studio-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
@@ -347,3 +349,7 @@ jobs:
           cp ../scripts/verify-physical-application-owned-second-film-react-worker.mjs .
           cp ../scripts/verify-physical-application-owned-second-film-react-orchestrator.mjs .
           node ./verify-physical-application-owned-second-film-react-orchestrator.mjs
+          cp ../scripts/isolated-application-owned-studio-service-composition.mjs .
+          cp ../scripts/verify-physical-composed-application-studio-react-worker.mjs .
+          cp ../scripts/verify-physical-composed-application-studio-react-orchestrator.mjs .
+          node ./verify-physical-composed-application-studio-react-orchestrator.mjs
