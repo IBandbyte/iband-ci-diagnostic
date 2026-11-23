@@ -9,7 +9,7 @@ assert.doesNotMatch(original,/applicationSecondFilm|studioRecoveryServices|studi
 assert.throws(()=>createApplicationOwnedStudioServices(),/application-studio-service-dependencies-required/);
 let token='owner',bytes='original-film-a-bytes',selected='film-a',selectionRevision=1,
   granted=false,admitted=false,revision=4;
-const calls=[],views=[];
+const calls=[],views=[],editableProjections=[];
 const scenes=[{id:'film-b-opening',text:'Film B opening'}];
 const transport=async({path,token:author,body})=>{
  calls.push({path,token:author,body:structuredClone(body)});
@@ -42,7 +42,7 @@ const transport=async({path,token:author,body})=>{
 };
 const app=createApplicationOwnedStudioServices({
   transport,getToken:()=>token,selectionVaultId:'vault',
-  readLocalBytes:()=>bytes,onView:v=>views.push(v)
+  readLocalBytes:()=>bytes,onView:v=>views.push(v),onEditable:x=>editableProjections.push(x)
 });
 const services=app.studioServices;
 assert.equal(services.pending,null);
@@ -64,6 +64,9 @@ const opened=await app.applicationSecondFilm.requestEditing({token,selectionVaul
 assert.equal(opened.ok,true,JSON.stringify(opened));
 assert.equal(opened.view.mode,'server-editable');
 assert.equal(opened.view.fence,'signed-fence');
+assert.equal(editableProjections.at(-1)?.revision,4,'server-owned projected revision must not disappear');
+assert.equal(editableProjections.at(-1)?.serverOwned,true);
+assert.equal(editableProjections.at(-1)?.fence,'signed-fence');
 assert.equal(services.editable.getSnapshot().serverOwned,true);
 assert.equal(services.selection.getSnapshot().activeProjectId,'film-b');
 assert.equal(app.recoveryServices().token,'owner');
