@@ -69,6 +69,8 @@ on:
       - 'scripts/isolated-pinned-studio-route-authority-candidate.mjs'
       - 'scripts/isolated-studio-authority-route-lifecycle.mjs'
       - 'scripts/verify-isolated-studio-route-auth-lifecycle.mjs'
+      - 'scripts/isolated-studio-route-authority-react-shell.jsx'
+      - 'scripts/verify-isolated-studio-route-react-shell-source.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -206,6 +208,8 @@ jobs:
         run: node scripts/verify-isolated-application-studio-async-clerk-session-adapter.mjs
       - name: Verify source-exact Studio route auth lifecycle and stale async cleanup
         run: node scripts/verify-isolated-studio-route-auth-lifecycle.mjs
+      - name: Verify source-anchored React Studio route authority shell fail-closed contract
+        run: node scripts/verify-isolated-studio-route-react-shell-source.mjs
       - name: Pin backend dependency
         run: |
           git init backend
