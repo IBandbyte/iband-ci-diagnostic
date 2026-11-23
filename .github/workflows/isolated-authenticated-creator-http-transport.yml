@@ -50,6 +50,8 @@ on:
       - 'scripts/verify-physical-native-recovery-react-worker.mjs'
       - 'scripts/verify-physical-native-recovery-react-orchestrator.mjs'
       - 'scripts/verify-original-continuity-red-server-reconciliation.mjs'
+      - 'scripts/isolated-original-continuity-second-film-migration.mjs'
+      - 'scripts/verify-isolated-original-second-film-source-migration.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-worker.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
@@ -135,6 +137,8 @@ jobs:
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Verify isolated durable browser pending recovery contract
         run: node scripts/verify-isolated-browser-pending-rehydration.mjs
+      - name: Verify source-exact original second-film caller migration denies unwitnessed local rebase
+        run: node scripts/verify-isolated-original-second-film-source-migration.mjs
       - name: Reconcile original frontend continuity RED against independent server-owned second-film recovery
         run: node scripts/verify-original-continuity-red-server-reconciliation.mjs
       - name: Verify pinned native Studio server-authorised recovery bridge source exact
