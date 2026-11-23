@@ -74,6 +74,9 @@ on:
       - 'scripts/verify-isolated-application-editable-adoption.mjs'
       - 'scripts/verify-physical-application-editable-admission-worker.mjs'
       - 'scripts/verify-physical-application-editable-admission-orchestrator.mjs'
+      - 'scripts/isolated-physical-provenance-fenced-scene-settlement.mjs'
+      - 'scripts/verify-physical-provenance-fenced-scene-recovery-worker.mjs'
+      - 'scripts/verify-physical-provenance-fenced-scene-recovery-orchestrator.mjs'
       - 'scripts/verify-isolated-conversation-settlement-contract.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-worker.mjs'
       - 'scripts/verify-isolated-creator-browser-persistence-orchestrator.mjs'
@@ -253,3 +256,7 @@ jobs:
           cp ../scripts/verify-physical-application-editable-admission-worker.mjs .
           cp ../scripts/verify-physical-application-editable-admission-orchestrator.mjs .
           node ./verify-physical-application-editable-admission-orchestrator.mjs
+          cp ../scripts/isolated-physical-provenance-fenced-scene-settlement.mjs .
+          cp ../scripts/verify-physical-provenance-fenced-scene-recovery-worker.mjs .
+          cp ../scripts/verify-physical-provenance-fenced-scene-recovery-orchestrator.mjs .
+          node ./verify-physical-provenance-fenced-scene-recovery-orchestrator.mjs
