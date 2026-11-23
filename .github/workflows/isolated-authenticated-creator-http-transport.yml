@@ -45,6 +45,10 @@ on:
       - 'scripts/verify-isolated-studio-continuity-migration-candidate.mjs'
       - 'scripts/isolated-pinned-studio-application-adoption-seams.mjs'
       - 'scripts/verify-isolated-pinned-studio-native-adoption-seams.mjs'
+      - 'scripts/isolated-pinned-native-studio-recovery-bridge.mjs'
+      - 'scripts/verify-isolated-pinned-native-studio-recovery-bridge.mjs'
+      - 'scripts/verify-physical-native-recovery-react-worker.mjs'
+      - 'scripts/verify-physical-native-recovery-react-orchestrator.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-worker.mjs'
       - 'scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
@@ -130,6 +134,8 @@ jobs:
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Verify isolated durable browser pending recovery contract
         run: node scripts/verify-isolated-browser-pending-rehydration.mjs
+      - name: Verify pinned native Studio server-authorised recovery bridge source exact
+        run: node scripts/verify-isolated-pinned-native-studio-recovery-bridge.mjs
       - name: Verify source-exact native Studio recovery and fenced application adoption seams
         run: node scripts/verify-isolated-pinned-studio-native-adoption-seams.mjs
       - name: Verify source-pinned Studio continuity migration candidate fails closed
@@ -292,3 +298,7 @@ jobs:
           cp ../scripts/verify-physical-consolidated-continuity-react-worker.mjs .
           cp ../scripts/verify-physical-consolidated-continuity-react-orchestrator.mjs .
           node ./verify-physical-consolidated-continuity-react-orchestrator.mjs
+          cp ../scripts/isolated-pinned-native-studio-recovery-bridge.mjs .
+          cp ../scripts/verify-physical-native-recovery-react-worker.mjs .
+          cp ../scripts/verify-physical-native-recovery-react-orchestrator.mjs .
+          node ./verify-physical-native-recovery-react-orchestrator.mjs
