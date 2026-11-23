@@ -41,6 +41,8 @@ on:
       - 'scripts/verify-original-continuity-application-adoption-court.mjs'
       - 'scripts/verify-physical-original-continuity-react-worker.mjs'
       - 'scripts/verify-physical-original-continuity-react-orchestrator.mjs'
+      - 'scripts/isolated-studio-continuity-migration-candidate.mjs'
+      - 'scripts/verify-isolated-studio-continuity-migration-candidate.mjs'
       - 'scripts/isolated-server-restart-continuation-authority.mjs'
       - 'scripts/verify-isolated-server-restart-positive-worker.mjs'
       - 'scripts/verify-isolated-server-restart-positive-orchestrator.mjs'
@@ -124,6 +126,8 @@ jobs:
         run: node scripts/verify-isolated-real-studio-lifecycle-handoff.mjs
       - name: Verify isolated durable browser pending recovery contract
         run: node scripts/verify-isolated-browser-pending-rehydration.mjs
+      - name: Verify source-pinned Studio continuity migration candidate fails closed
+        run: node scripts/verify-isolated-studio-continuity-migration-candidate.mjs
       - name: Verify source-pinned application editable adoption grant and fence contract
         run: node scripts/verify-isolated-application-editable-adoption.mjs
       - name: Verify pinned application recovery adoption remains read-only until authoritative admission
