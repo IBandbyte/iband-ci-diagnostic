@@ -28,7 +28,7 @@ export function transformPinnedMigratedSecondFilmRecovery(source){
             bridge.mode !== "read-only" || oldProjectId === target)
           throw Error("second-film-caller-denied");
         globalThis.__migratedSecondFilmPhysicalCalls=(globalThis.__migratedSecondFilmPhysicalCalls||0)+1;
-        recovered={ok:true,view:{...bridge,projectRevision:4}};
+        recovered={ok:true,view:controller.getSnapshot()};
       } else {
         // A restarted browser must re-read authoritative selection and film
         // without manufacturing a second selection receipt or writer grant.
