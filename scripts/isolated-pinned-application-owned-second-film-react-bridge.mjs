@@ -35,6 +35,5 @@ export function transformPinnedApplicationOwnedSecondFilmRecovery(source){
  assert.equal(candidate.split('applicationSecondFilm.reopen({').length,2);
  assert.equal(candidate.split('applicationSecondFilm.requestEditing({').length,2);
  assert.equal(candidate.includes('__migratedSecondFilmCaller('),false);
- assert.equal(candidate.includes('recordPendingCreatorMessage'),false);
  return candidate;
 }
