@@ -5,9 +5,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import createCreatorMemory,{createMemoryStorageAdapter} from './frontend/src/components/studio/mentor/CreatorMemory.js';
-import createMovieMentorStudioIdentityRuntime from './frontend/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js';
-import {createIsolatedStudioContinuityMigration} from './scripts/isolated-studio-continuity-migration-candidate.mjs';
+import createCreatorMemory,{createMemoryStorageAdapter} from '../frontend/src/components/studio/mentor/CreatorMemory.js';
+import createMovieMentorStudioIdentityRuntime from '../frontend/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js';
+import {createIsolatedStudioContinuityMigration} from './isolated-studio-continuity-migration-candidate.mjs';
 const old=readFileSync('./frontend/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8');
 const core=readFileSync('./frontend/src/components/studio/mentor/CreatorMemory.js','utf8');
 assert.match(old,/const memoryB = createCreatorMemory/);
