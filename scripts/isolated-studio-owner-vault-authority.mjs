@@ -1,11 +1,42 @@
 // Isolated durable binding authority. Provisioning is a trusted server operation,
 // never a public browser request. It binds an already established owned vault.
-export function createStudioOwnerVaultAuthority({bindings,states,client,authenticateOwner,readSelection}={}){
- if(!bindings||!states||!client||typeof authenticateOwner!=='function'||typeof readSelection!=='function')throw Error('vault-authority-dependencies-required');
+import {createHash,randomUUID} from 'node:crypto';
+const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+export function createStudioOwnerVaultAuthority({bindings,states,ledger,client,authenticateOwner,readSelection}={}){
+ if(!bindings||!states||!ledger||!client||typeof authenticateOwner!=='function'||typeof readSelection!=='function')throw Error('vault-authority-dependencies-required');
  const valid=x=>typeof x==='string'&&x.length>0&&x.trim()===x;
  async function initialize(){
   await bindings.createIndex({ownerId:1},{unique:true});
   await bindings.createIndex({vaultId:1},{unique:true});
+  await states.createIndex({projectId:1},{unique:true});
+  await ledger.createIndex({projectId:1,operationId:1},{unique:true});
+ }
+ // Create only the server-generated empty vault. No caller content or identity.
+ async function create({token}={}){
+  const ownerId=await authenticateOwner(token);
+  if(!valid(ownerId))return {ok:false};
+  const vaultId='studio-vault-'+randomUUID();
+  const content={activeProjectId:null,projects:[]};
+  const entry={id:randomUUID(),status:'pending',committedStateVersion:1,snapshotDigest:digest({content,revision:1})};
+  const state={content,durablePublicationOutbox:[entry]};
+  const session=client.startSession();
+  try{
+   return await session.withTransaction(async()=>{
+    const existing=await bindings.findOne({ownerId},{session});
+    if(existing){
+     const owned=await states.findOne({projectId:existing.vaultId,ownerId,revoked:false},{session});
+     return existing.revoked===false&&owned?{ok:true,vaultId:existing.vaultId,replayed:true}:{ok:false};
+    }
+    await states.insertOne({projectId:vaultId,ownerId,revision:1,ownershipRevision:1,revoked:false,state},{session});
+    await ledger.insertOne({projectId:vaultId,operationId:'vault-genesis',ownerId,ownershipRevision:1,revision:1,entry,fullOutboxDigest:digest(state.durablePublicationOutbox),stateDigest:digest(state)},{session});
+    await bindings.insertOne({ownerId,vaultId,revoked:false},{session});
+    return {ok:true,vaultId,replayed:false};
+   },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
+  }catch(e){
+   if(e?.code!==11000)throw e;
+   const found=await resolve({token});
+   return found.ok?{...found,replayed:true}:{ok:false};
+  }finally{await session.endSession()}
  }
  async function provision({token,vaultId}={}){
   const ownerId=await authenticateOwner(token);
@@ -48,5 +79,5 @@ export function createStudioOwnerVaultAuthority({bindings,states,client,authenti
    },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
   }finally{await session.endSession()}
  }
- return Object.freeze({initialize,provision,resolve,revoke});
+ return Object.freeze({initialize,create,provision,resolve,revoke});
 }

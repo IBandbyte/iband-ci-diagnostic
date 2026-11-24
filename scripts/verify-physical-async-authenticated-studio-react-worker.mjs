@@ -56,7 +56,7 @@ let server,vite,browser;
 const authenticate=header=>{
  try{const parts=header?.slice(7).split('.');if(!header.startsWith('Bearer ')||parts.length!==3)return null;const h=JSON.parse(Buffer.from(parts[0],'base64url'));const p=JSON.parse(Buffer.from(parts[1],'base64url'));const now=Math.floor(Date.now()/1000);if(h.alg!=='RS256'||p.iss!=='https://isolated-auth.test'||p.aud!=='movie-mentor-creator-write'||p.exp<=now||p.nbf>now)return null;return verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),key,Buffer.from(parts[2],'base64url'))?p.sub:null}catch{return null}
 };
-const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
+const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
 const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>32768)throw Error('too-large')}return JSON.parse(s)};
 try{
  if(phase==='revoked-restart'){
@@ -71,6 +71,13 @@ try{
   assert.equal((await selectionAuthority.select({token:process.env.INTRUDER_TOKEN,projectId:'isolated-new-write-race-vault',operationId:'race-new-write',expectedRevision:1,nextActiveProjectId:null})).ok,false);
   assert.equal(await selectionAuthority.receipts.countDocuments({projectId:'isolated-new-write-race-vault'}),0);
   assert.equal(await provenance.states.countDocuments({projectId:'isolated-new-write-race-vault',revoked:true,revision:1,ownershipRevision:2}),1);
+  assert.equal((await vaultAuthority.create({token:process.env.CANONICAL_OWNER_TOKEN})).ok,false);
+  assert.equal(await vaultBindings.countDocuments({ownerId:'canonical-owner',revoked:true}),1);
+  const canonical=await provenance.states.findOne({ownerId:'canonical-owner'});
+  assert.equal(canonical.revoked,true);
+  assert.equal(canonical.revision,1);
+  assert.equal(await provenance.ledger.countDocuments({projectId:canonical.projectId}),1);
+  console.log('GREEN PHYSICAL_CANONICAL_VAULT_GENESIS_FRESH_PROCESS_NON_RESURRECTION');
   console.log('GREEN PHYSICAL_NEW_SELECTION_WRITE_REVOCATION_FRESH_PROCESS_DENIAL');
   console.log('GREEN PHYSICAL_ATOMIC_VAULT_REVOCATION_FRESH_PROCESS_DENIAL');
  }else if(phase==='seed'){
@@ -427,6 +434,25 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
     // Independent, valid genesis vault for a second owner. Prove the write
     // reaches the actual commit seam before revocation wins; no sleeps.
     assert.equal((await vaultAuthority.revoke({token:process.env.INTRUDER_TOKEN})).ok,false);
+    // Canonical creation uses a separate disposable principal so existing
+    // fixture-backed ownership and intruder controls remain independent.
+    const canonicalToken=process.env.CANONICAL_OWNER_TOKEN;
+    assert.ok(canonicalToken);
+    const created=await Promise.all(Array.from({length:3},()=>vaultAuthority.create({token:canonicalToken})));
+    assert.ok(created.every(x=>x.ok===true));
+    const canonicalVault=created[0].vaultId;
+    assert.ok(created.every(x=>x.vaultId===canonicalVault));
+    assert.equal(created.filter(x=>x.replayed===false).length,1);
+    assert.equal(await vaultBindings.countDocuments({ownerId:'canonical-owner'}),1);
+    assert.equal(await provenance.states.countDocuments({ownerId:'canonical-owner'}),1);
+    assert.equal(await provenance.ledger.countDocuments({projectId:canonicalVault}),1);
+    assert.deepEqual(await selectionAuthority.read({token:canonicalToken,projectId:canonicalVault}),{ok:true,projectId:canonicalVault,revision:1,activeProjectId:null});
+    assert.equal((await selectionAuthority.read({token:process.env.OWNER_TOKEN,projectId:canonicalVault})).ok,false);
+    assert.equal((await vaultAuthority.create({token:'invalid'})).ok,false);
+    assert.equal((await vaultAuthority.revoke({token:canonicalToken})).ok,true);
+    assert.equal((await vaultAuthority.create({token:canonicalToken})).ok,false);
+    assert.equal(await provenance.states.countDocuments({ownerId:'canonical-owner'}),1);
+    console.log('GREEN PHYSICAL_CANONICAL_VAULT_ATOMIC_GENESIS_CREATE_ONCE_AND_NON_RESURRECTION');
     const raceOwner='intruder',raceVault='isolated-new-write-race-vault',raceToken=process.env.INTRUDER_TOKEN;
     await provenance.states.insertOne({projectId:raceVault,ownerId:raceOwner,revision:0,ownershipRevision:1,revoked:false,state:{content:{activeProjectId:null,projects:[]},durablePublicationOutbox:[]}});
     const seed=await provenance.append({token:raceToken,projectId:raceVault,operationId:'race-genesis',expectedRevision:0,content:{activeProjectId:null,projects:[]}});
