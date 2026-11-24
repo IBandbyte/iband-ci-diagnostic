@@ -25,6 +25,7 @@ const base='__async_authenticated_studio_react';
 const files=['../frontend/'+base+'.html','../frontend/'+base+'_entry.jsx','../frontend/'+base+'_vite.config.mjs','../frontend/src/components/studio/'+base+'.jsx','../frontend/'+base+'_runtime.mjs'];
 const phase=process.argv[2];assert.ok(['seed','save','recover'].includes(phase));
 const selectionProjectId='physical-studio-selection-vault';
+const vaultBindings=db.collection('studio_owner_vault_bindings');
 const routeMode=process.env.PHYSICAL_STUDIO_ROUTE==='1';
 // Reproduce the exact original restart/local-writer failure before any React
 // projection. The server is NEVER permitted to mutate these persisted bytes.
@@ -58,6 +59,10 @@ const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>3
 try{
  if(phase==='seed'){
   await Promise.all([projects.deleteMany({}),receipts.deleteMany({}),grants.deleteMany({}),provenance.states.deleteMany({}),provenance.ledger.deleteMany({}),provenance.grants.deleteMany({}),selectionGate.admissions.deleteMany({}),selectionAuthority.receipts.deleteMany({projectId:selectionProjectId})]);
+  await vaultBindings.deleteMany({});
+  await vaultBindings.createIndex({ownerId:1},{unique:true});
+  await vaultBindings.createIndex({vaultId:1},{unique:true});
+  await vaultBindings.insertOne({ownerId:'owner-1',vaultId:selectionProjectId,revoked:false});
   await receipts.createIndex({projectId:1,operationId:1},{unique:true});
   await grants.createIndex({projectId:1,operationId:1},{unique:true});
   await projects.insertMany([{_id:'film-a',ownerId:'owner-1',revision:1,state:{scenes:[{id:'scene-one',text:'Opening scene'}]}},{_id:'film-b',ownerId:'owner-1',revision:4,state:{scenes:[{id:'scene-b-next',text:'Film B next confirmed scene'}]}}]);
@@ -77,6 +82,15 @@ try{
    const owner=authenticate(req.headers.authorization);if(!owner)return reply(401,{ok:false});
    try{
     const input=await readJson(req);
+    // Isolated candidate endpoint: derive identity only from verified subject.
+    if(req.url==='/studio/selection-vault'){
+      if(!input||Object.keys(input).length!==0)return reply(400,{ok:false});
+      const binding=await vaultBindings.findOne({ownerId:owner,revoked:false});
+      if(!binding)return reply(403,{ok:false});
+      const proof=await selectionAuthority.read({token:req.headers.authorization.slice(7),projectId:binding.vaultId});
+      if(proof.ok!==true||proof.projectId!==binding.vaultId)return reply(403,{ok:false});
+      return reply(200,{ok:true,vaultId:binding.vaultId});
+    }
     if(!input?.projectId)return reply(400,{ok:false});
     if(req.url==='/studio/selection-read'){
       const result=await selectionAuthority.read({token:req.headers.authorization.slice(7),projectId:input.projectId});
@@ -219,7 +233,7 @@ try{
    assert.equal(entry.split(marker).length,2);
    entry=entry.split(marker)[0]+`import {BrowserRouter} from 'react-router-dom';import App from './src/${base}_App.jsx';import {setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState} from './src/components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
 import {createApplicationStudioSessionFactory} from './${base}_factory.mjs';
-const routeFactory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async()=> 'physical-studio-selection-vault',readLocalBytes:()=>JSON.stringify(globalThis.localStorage.getItem('iband.creator-memory')),onSelection:x=>globalThis.__diagnosticSelectionView?.(x),onReadOnly:x=>globalThis.__diagnosticApplicationView?.(x),onEditable:x=>globalThis.__diagnosticEditableView?.(x),onView:v=>globalThis.__continuityView?.(v)});
+const routeFactory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>{const proof=await transport({path:'/studio/selection-vault',token,body:{}});return proof?.ok===true?proof.vaultId:null},readLocalBytes:()=>JSON.stringify(globalThis.localStorage.getItem('iband.creator-memory')),onSelection:x=>globalThis.__diagnosticSelectionView?.(x),onReadOnly:x=>globalThis.__diagnosticApplicationView?.(x),onEditable:x=>globalThis.__diagnosticEditableView?.(x),onView:v=>globalThis.__continuityView?.(v)});
 export function createRouteSession(auth){const session=routeFactory(auth);globalThis.__routeSession=session;return session;}
 export function RouteWorkspace(props){const {applicationSecondFilm,studioServices,studioRecoveryServices}=props;globalThis.__physicalAsyncSessionReady=true;globalThis.__serverSelection=studioServices.selection;globalThis.__applicationEditable=studioServices.editable;globalThis.__continuity=studioRecoveryServices.continuity;Object.defineProperty(globalThis,'__diagnosticConversationPending',{configurable:true,get:()=>studioServices.pending});globalThis.__routeRetainedServices=studioServices;return <CreatorWorkspace {...props} creatorName="Diagnostic Creator"/>;}
 globalThis.__routeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>globalThis.__diagnosticToken});
@@ -376,6 +390,18 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
    console.log('GREEN PHYSICAL_ROUTED_SIGNED_MONGO_'+phase.toUpperCase()+'_SIGNOUT_REVOKES_RETAINED_SERVICES');
   }
   assert.deepEqual(pageErrors,[]);
+  if(routeMode){
+   const discover=async(token,body)=>fetch('http://127.0.0.1:'+server.address().port+'/studio/selection-vault',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});
+   const ownerProof=await discover(process.env.OWNER_TOKEN,{});
+   assert.equal(ownerProof.status,200);
+   assert.deepEqual(await ownerProof.json(),{ok:true,vaultId:selectionProjectId});
+   assert.equal((await discover(process.env.INTRUDER_TOKEN,{})).status,403);
+   assert.equal((await discover(process.env.OWNER_TOKEN,{vaultId:'foreign'})).status,400);
+   await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:true}});
+   try{assert.equal((await discover(process.env.OWNER_TOKEN,{})).status,403);}
+   finally{await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:false}});}
+   console.log('GREEN PHYSICAL_SERVER_DERIVED_OWNER_VAULT_DISCOVERY_AND_DENIAL');
+  }
   const intruder=await fetch('http://127.0.0.1:'+server.address().port+'/studio/read',{method:'POST',headers:{authorization:'Bearer '+process.env.INTRUDER_TOKEN,'content-type':'application/json'},body:JSON.stringify({projectId:'film-a'})});
   assert.equal(intruder.status,403);
   console.log('GREEN PHYSICAL_STUDIO_SELECTION_INTRUDER_DENIED');
