@@ -18,7 +18,8 @@ const files=[
  root+'/'+base+'.html',
  root+'/'+base+'_vite.config.mjs'
 ];
-let vite,browser;
+let vite,browser,page,logs='';
+const errors=[],browserDiagnostics=[];
 try{
  const pinned=readFileSync(root+'/src/App.jsx','utf8');
  const regression=readFileSync(root+'/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8');
@@ -38,20 +39,22 @@ try{
 let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return clearMovieMentorCreatorAuthState();if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?'token-2':'token-1'});};
 globalThis.__physicalReleaseDelayed=()=>{release?.('stale-token');release=null};
 export function createPhysicalSession({getAuthToken}){generations++;let invalidated=false,services=null;return{invalidate(){invalidated=true;services=null},getServices(){return invalidated?null:services},async open(){const token=await getAuthToken();if(invalidated||typeof token!=='string'||!token.startsWith('token-'))return{ok:false};services={applicationSecondFilm:{getReadOnly:()=>null},studioServices:{editable:{},selection:{},request:async()=>{if(invalidated)throw Error('invalidated')}},recoveryServices:()=>({continuity:{},token,selectionVaultId:'vault'})};return{ok:true,services}}}}};
+history.replaceState({},'', '/studio');
 createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`);
  writeFileSync(files[5],`<html><body><div id="root"></div><script type="module" src="/src/${base}_entry.jsx"></script></body></html>`);
  writeFileSync(files[6],`import{defineConfig}from'vite';import react from'@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()]});`);
  const port=52819;
  vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port',String(port),'--strictPort','--config',base+'_vite.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
- let logs='';vite.stderr.on('data',x=>logs+=x);vite.stdout.on('data',x=>logs+=x);
+ logs='';vite.stderr.on('data',x=>logs+=x);vite.stdout.on('data',x=>logs+=x);
  let ready=false;
  for(let i=0;i<90;i++){if(vite.exitCode!==null)throw Error('vite-exited '+logs.slice(-1800));try{if((await fetch('http://127.0.0.1:'+port+'/'+base+'.html')).ok){ready=true;break}}catch{}await delay(150)}
  assert.ok(ready,'Vite route shell not ready: '+logs.slice(-1500));
  const {chromium}=await import('playwright');
  browser=await chromium.launch({headless:true});
- const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ page=await browser.newPage();page.on('pageerror',e=>errors.push(String(e)));
+ page.on('console',m=>{if(m.type()==='error')browserDiagnostics.push(m.text())});
+ page.on('requestfailed',r=>browserDiagnostics.push(r.url()+' '+r.failure()?.errorText));
  await page.goto('http://127.0.0.1:'+port+'/'+base+'.html');
- await page.evaluate(()=>{history.pushState({},'', '/studio');dispatchEvent(new PopStateEvent('popstate'))});
  await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_LOCKED_BEFORE_AUTH');
@@ -77,6 +80,11 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  assert.equal(readFileSync(root+'/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8'),regression);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_UNMOUNT_AND_PINNED_SOURCE_PRESERVED');
  console.log('HELD REAL_CLERK_SESSION_FACTORY_AND_ORIGINAL_LINE_71_RED');
+}catch(error){
+ console.error('PHYSICAL_ROUTE_BROWSER_FAILURE',error);
+ if(page){console.error('URL',page.url());console.error('DOM',(await page.content().catch(()=>'' )).slice(0,8000));}
+ console.error('PAGE_ERRORS',errors,'BROWSER_DIAGNOSTICS',browserDiagnostics,'VITE',logs.slice(-10000));
+ throw error;
 }finally{
  try{await browser?.close()}catch{}
  try{vite?.kill('SIGTERM')}catch{}
