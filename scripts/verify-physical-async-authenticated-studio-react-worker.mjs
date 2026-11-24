@@ -25,6 +25,7 @@ const base='__async_authenticated_studio_react';
 const files=['../frontend/'+base+'.html','../frontend/'+base+'_entry.jsx','../frontend/'+base+'_vite.config.mjs','../frontend/src/components/studio/'+base+'.jsx','../frontend/'+base+'_runtime.mjs'];
 const phase=process.argv[2];assert.ok(['seed','save','recover'].includes(phase));
 const selectionProjectId='physical-studio-selection-vault';
+const routeMode=process.env.PHYSICAL_STUDIO_ROUTE==='1';
 // Reproduce the exact original restart/local-writer failure before any React
 // projection. The server is NEVER permitted to mutate these persisted bytes.
 const localStorage=createMemoryStorageAdapter();let uuidIndex=0;
@@ -189,7 +190,36 @@ try{
   assert.equal(asyncSource.split('./isolated-application-owned-studio-service-composition.mjs').length,2,'async session composition import drift');
   asyncSource=asyncSource.replace('./isolated-application-owned-studio-service-composition.mjs','./'+base+'_composed.mjs');
   writeFileSync(asyncModule,asyncSource);
-  writeFileSync(files[1],`import React from 'react';import {createRoot} from 'react-dom/client';import CreatorWorkspace from './src/components/studio/${base}.jsx';import {createIsolatedStudioLifecycleCoordinator} from './${base}_runtime.mjs';import {createIsolatedStudioServerSelectionAdoption} from './${base}_selection.mjs';import {createIsolatedApplicationRecoveryAdoption} from './${base}_application.mjs';import {createIsolatedApplicationEditableAdoption} from './${base}_editable.mjs';import {createIsolatedStudioContinuityMigration} from './${base}_continuity.mjs';import {selectSecondFilmWithServerAuthority} from './${base}_second_film.mjs';import {createApplicationSecondFilmBoundary} from './${base}_boundary.mjs';import {createApplicationOwnedStudioServices} from './${base}_composed.mjs';import {createAsyncAuthenticatedStudioSession} from './${base}_async_session.mjs';const request=async(path,data)=>{const r=await fetch(path,{method:'POST',headers:{authorization:'Bearer '+globalThis.__diagnosticToken,'content-type':'application/json'},body:JSON.stringify(data)});return r.json()};const authority={readProject:id=>request('/studio/read',{projectId:id}),admit:x=>request('/studio/admit',x),saveScene:x=>request('/studio/save',x),readCommitted:x=>request('/studio/read-committed',x)};globalThis.__studioLifecycle=createIsolatedStudioLifecycleCoordinator({authority,view:s=>globalThis.__diagnosticStudioView?.(s)});globalThis.__diagnosticStudioLifecycle=globalThis.__studioLifecycle;const transport=async({path,token,body})=>{const response=await fetch(path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return response.json()};const asyncSession=createAsyncAuthenticatedStudioSession({transport,getAuthToken:async()=>globalThis.__diagnosticToken,selectionVaultId:"physical-studio-selection-vault",readLocalBytes:()=>JSON.stringify(globalThis.localStorage.getItem('iband.creator-memory')),onSelection:x=>globalThis.__diagnosticSelectionView?.(x),onReadOnly:x=>globalThis.__diagnosticApplicationView?.(x),onEditable:x=>globalThis.__diagnosticEditableView?.(x),onView:v=>globalThis.__continuityView?.(v)});const openedSession=await asyncSession.open();if(!openedSession.ok)throw Error('physical-async-auth-open-denied');const app=openedSession.services;globalThis.__physicalAsyncSessionReady=true;globalThis.__serverSelection=app.studioServices.selection;globalThis.__applicationEditable=app.studioServices.editable;globalThis.__continuity=app.recoveryServices().continuity;const applicationSecondFilm=app.applicationSecondFilm,studioServices=app.studioServices,studioRecoveryServices=app.recoveryServices();Object.defineProperty(globalThis,'__diagnosticConversationPending',{get:()=>studioServices.pending});createRoot(document.getElementById('root')).render(<CreatorWorkspace applicationSecondFilm={applicationSecondFilm} studioServices={studioServices} studioRecoveryServices={studioRecoveryServices} creatorName="Diagnostic Creator" />);`);
+  if(routeMode){
+   const {transformPinnedStudioRouteToAuthorityShell}=await import('../scripts/isolated-pinned-studio-route-authority-candidate.mjs');
+   const appPath='../frontend/src/'+base+'_App.jsx';
+   const shellPath='../frontend/src/components/studio/mentor/StudioRouteAuthorityShell.jsx';
+   const lifecyclePath='../frontend/src/components/studio/mentor/MovieMentorStudioRouteLifecycle.mjs';
+   for(const p of [appPath,shellPath,lifecyclePath])files.push(p);
+   let app=transformPinnedStudioRouteToAuthorityShell(readFileSync('../frontend/src/App.jsx','utf8'));
+   const anchor='import StudioRouteAuthorityShell from "./components/studio/mentor/StudioRouteAuthorityShell.jsx";';
+   assert.equal(app.split(anchor).length,2);
+   app=app.replace(anchor,anchor+'\nimport {createRouteSession,RouteWorkspace} from "../'+base+'_entry.jsx";');
+   const route='element={<StudioRouteAuthorityShell onGenerate={generateMovieMentorLiveResponse} />}';
+   assert.equal(app.split(route).length,2);
+   app=app.replace(route,'element={<StudioRouteAuthorityShell onGenerate={generateMovieMentorLiveResponse} createSession={createRouteSession} WorkspaceComponent={RouteWorkspace} />}');
+   writeFileSync(appPath,app);
+   writeFileSync(shellPath,readFileSync('../scripts/isolated-studio-route-authority-react-shell.jsx','utf8'));
+   writeFileSync(lifecyclePath,readFileSync('../scripts/isolated-studio-authority-route-lifecycle.mjs','utf8'));
+  }
+  writeFileSync(files[1],`import React from 'react';import {createRoot} from 'react-dom/client';import CreatorWorkspace from './src/components/studio/${base}.jsx';import {createIsolatedStudioLifecycleCoordinator} from './${base}_runtime.mjs';import {createIsolatedStudioServerSelectionAdoption} from './${base}_selection.mjs';import {createIsolatedApplicationRecoveryAdoption} from './${base}_application.mjs';import {createIsolatedApplicationEditableAdoption} from './${base}_editable.mjs';import {createIsolatedStudioContinuityMigration} from './${base}_continuity.mjs';import {selectSecondFilmWithServerAuthority} from './${base}_second_film.mjs';import {createApplicationSecondFilmBoundary} from './${base}_boundary.mjs';import {createApplicationOwnedStudioServices} from './${base}_composed.mjs';import {createAsyncAuthenticatedStudioSession} from './${base}_async_session.mjs';const request=async(path,data)=>{const r=await fetch(path,{method:'POST',headers:{authorization:'Bearer '+globalThis.__diagnosticToken,'content-type':'application/json'},body:JSON.stringify(data)});return r.json()};const authority={readProject:id=>request('/studio/read',{projectId:id}),admit:x=>request('/studio/admit',x),saveScene:x=>request('/studio/save',x),readCommitted:x=>request('/studio/read-committed',x)};globalThis.__studioLifecycle=createIsolatedStudioLifecycleCoordinator({authority,view:s=>globalThis.__diagnosticStudioView?.(s)});globalThis.__diagnosticStudioLifecycle=globalThis.__studioLifecycle;const transport=async({path,token,body})=>{const response=await fetch(path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return response.json()};const makeSession=getAuthToken=>createAsyncAuthenticatedStudioSession({transport,getAuthToken,selectionVaultId:"physical-studio-selection-vault",readLocalBytes:()=>JSON.stringify(globalThis.localStorage.getItem('iband.creator-memory')),onSelection:x=>globalThis.__diagnosticSelectionView?.(x),onReadOnly:x=>globalThis.__diagnosticApplicationView?.(x),onEditable:x=>globalThis.__diagnosticEditableView?.(x),onView:v=>globalThis.__continuityView?.(v)});const asyncSession=makeSession(async()=>globalThis.__diagnosticToken);const openedSession=await asyncSession.open();if(!openedSession.ok)throw Error('physical-async-auth-open-denied');const app=openedSession.services;globalThis.__physicalAsyncSessionReady=true;globalThis.__serverSelection=app.studioServices.selection;globalThis.__applicationEditable=app.studioServices.editable;globalThis.__continuity=app.recoveryServices().continuity;const applicationSecondFilm=app.applicationSecondFilm,studioServices=app.studioServices,studioRecoveryServices=app.recoveryServices();Object.defineProperty(globalThis,'__diagnosticConversationPending',{get:()=>studioServices.pending});createRoot(document.getElementById('root')).render(<CreatorWorkspace applicationSecondFilm={applicationSecondFilm} studioServices={studioServices} studioRecoveryServices={studioRecoveryServices} creatorName="Diagnostic Creator" />);`);
+  if(routeMode){
+   let entry=readFileSync(files[1],'utf8');
+   const marker='const asyncSession=makeSession(async()=>globalThis.__diagnosticToken);';
+   assert.equal(entry.split(marker).length,2);
+   entry=entry.split(marker)[0]+`import {BrowserRouter} from 'react-router-dom';import App from './src/${base}_App.jsx';import {setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState} from './src/components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
+export function createRouteSession({getAuthToken}){const session=makeSession(getAuthToken);globalThis.__routeSession=session;return session;}
+export function RouteWorkspace(props){const {applicationSecondFilm,studioServices,studioRecoveryServices}=props;globalThis.__physicalAsyncSessionReady=true;globalThis.__serverSelection=studioServices.selection;globalThis.__applicationEditable=studioServices.editable;globalThis.__continuity=studioRecoveryServices.continuity;Object.defineProperty(globalThis,'__diagnosticConversationPending',{configurable:true,get:()=>studioServices.pending});globalThis.__routeRetainedServices=studioServices;return <CreatorWorkspace {...props} creatorName="Diagnostic Creator"/>;}
+globalThis.__routeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>globalThis.__diagnosticToken});
+globalThis.__routeSignOut=()=>clearMovieMentorCreatorAuthState();
+history.replaceState({},'', '/studio');createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`;
+   writeFileSync(files[1],entry);
+  }
   writeFileSync(files[0],`<html><body><div id="root"></div><script type="module" src="/${base}_entry.jsx"></script></body></html>`);
   writeFileSync(files[2],`import {defineConfig} from 'vite';import react from '@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()],server:{proxy:{'/studio':{target:'http://127.0.0.1:${server.address().port}',changeOrigin:true}}}});`);
   vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port','52767','--strictPort','--config',base+'_vite.config.mjs'],{cwd:'../frontend',stdio:['ignore','pipe','pipe']});
@@ -200,6 +230,11 @@ try{
   const page=await browser.newPage(),pageErrors=[];page.on('pageerror',e=>pageErrors.push(String(e)));
   await page.addInitScript(token=>{globalThis.__diagnosticToken=token;globalThis.__originalBrowserMemoryBytes=globalThis.localStorage.getItem('iband.creator-memory');},process.env.OWNER_TOKEN);
   await page.goto('http://127.0.0.1:52767/'+base+'.html');
+  if(routeMode){
+   await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
+   assert.equal(await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).count(),0);
+   await page.evaluate(()=>globalThis.__routeSignIn());
+  }
   await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).waitFor({timeout:15000});
   const selected=page.getByLabel('Server selection'),recovered=page.getByLabel('Recovered film'),editable=page.getByLabel('Server editable authority'),local=page.getByLabel('Local movie identity'),continuity=page.getByLabel('Consolidated continuity mode');
   async function poll(loc,word){for(let i=0;i<120;i++){if((await loc.textContent()||'').includes(word))return;await delay(40)}throw Error('expected '+word+' got '+await loc.textContent())}
@@ -290,6 +325,12 @@ try{
    assert.equal(deniedAgain.reason,'publication-outbox-provenance-unverified');
    assert.equal(localStorage.getItem('iband.creator-memory'),originalBytes);
    console.log('GREEN PHYSICAL_ASYNC_AUTHENTICATED_STUDIO_FRESH_BROWSER_READ_ONLY_REPLAY_AND_LOCAL_WRITER_LOCKED');
+  }
+  if(routeMode){
+   await page.evaluate(()=>globalThis.__routeSignOut());
+   await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
+   assert.equal(await page.evaluate(async()=>{try{await globalThis.__routeRetainedServices.request('/studio/read',{projectId:'film-b'});return false}catch{return globalThis.__routeSession.getServices()===null}}),true);
+   console.log('GREEN PHYSICAL_ROUTED_SIGNED_MONGO_'+phase.toUpperCase()+'_SIGNOUT_REVOKES_RETAINED_SERVICES');
   }
   assert.deepEqual(pageErrors,[]);
   const intruder=await fetch('http://127.0.0.1:'+server.address().port+'/studio/read',{method:'POST',headers:{authorization:'Bearer '+process.env.INTRUDER_TOKEN,'content-type':'application/json'},body:JSON.stringify({projectId:'film-a'})});
