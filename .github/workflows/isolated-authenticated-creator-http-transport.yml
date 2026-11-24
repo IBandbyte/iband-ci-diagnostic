@@ -65,6 +65,8 @@ on:
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
       - 'scripts/verify-pinned-application-auth-route-adoption-blockers.mjs'
       - 'scripts/isolated-application-studio-async-clerk-session-adapter.mjs'
+      - 'scripts/isolated-application-studio-session-factory.mjs'
+      - 'scripts/verify-isolated-application-studio-session-factory.mjs'
       - 'scripts/verify-isolated-application-studio-async-clerk-session-adapter.mjs'
       - 'scripts/isolated-pinned-studio-route-authority-candidate.mjs'
       - 'scripts/isolated-studio-authority-route-lifecycle.mjs'
@@ -207,6 +209,8 @@ jobs:
         run: node scripts/verify-pinned-application-auth-route-adoption-blockers.mjs
       - name: Verify async Clerk-backed Studio session composition and token-rotation denial
         run: node scripts/verify-isolated-application-studio-async-clerk-session-adapter.mjs
+      - name: Verify application-owned session factory and selection vault admission
+        run: node scripts/verify-isolated-application-studio-session-factory.mjs
       - name: Verify source-exact Studio route auth lifecycle and stale async cleanup
         run: node scripts/verify-isolated-studio-route-auth-lifecycle.mjs
       - name: Verify source-anchored React Studio route authority shell fail-closed contract
