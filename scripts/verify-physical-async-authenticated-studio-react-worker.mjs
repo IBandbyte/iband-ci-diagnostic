@@ -24,7 +24,7 @@ const projects=db.collection('projects'),receipts=db.collection('receipts'),gran
 const key=createPublicKey(process.env.PUBLIC_KEY_PEM);
 const base='__async_authenticated_studio_react';
 const files=['../frontend/'+base+'.html','../frontend/'+base+'_entry.jsx','../frontend/'+base+'_vite.config.mjs','../frontend/src/components/studio/'+base+'.jsx','../frontend/'+base+'_runtime.mjs'];
-const phase=process.argv[2];assert.ok(['seed','save','recover'].includes(phase));
+const phase=process.argv[2];assert.ok(['seed','save','recover','revoked-restart'].includes(phase));
 const selectionProjectId='physical-studio-selection-vault';
 const vaultBindings=db.collection('studio_owner_vault_bindings');
 const routeMode=process.env.PHYSICAL_STUDIO_ROUTE==='1';
@@ -56,10 +56,20 @@ let server,vite,browser;
 const authenticate=header=>{
  try{const parts=header?.slice(7).split('.');if(!header.startsWith('Bearer ')||parts.length!==3)return null;const h=JSON.parse(Buffer.from(parts[0],'base64url'));const p=JSON.parse(Buffer.from(parts[1],'base64url'));const now=Math.floor(Date.now()/1000);if(h.alg!=='RS256'||p.iss!=='https://isolated-auth.test'||p.aud!=='movie-mentor-creator-write'||p.exp<=now||p.nbf>now)return null;return verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),key,Buffer.from(parts[2],'base64url'))?p.sub:null}catch{return null}
 };
-const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
+const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
 const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>32768)throw Error('too-large')}return JSON.parse(s)};
 try{
- if(phase==='seed'){
+ if(phase==='revoked-restart'){
+  assert.equal((await vaultAuthority.resolve({token:process.env.OWNER_TOKEN})).ok,false);
+  assert.equal((await vaultAuthority.provision({token:process.env.RENEWED_OWNER_TOKEN,vaultId:selectionProjectId})).ok,false);
+  assert.equal((await selectionAuthority.read({token:process.env.RENEWED_OWNER_TOKEN,projectId:selectionProjectId})).ok,false);
+  const row=await selectionAuthority.receipts.findOne({projectId:selectionProjectId});
+  assert.ok(row);
+  assert.equal((await selectionAuthority.select({token:process.env.OWNER_TOKEN,projectId:selectionProjectId,operationId:row.operationId,expectedRevision:row.expectedRevision,nextActiveProjectId:row.nextActiveProjectId})).ok,false);
+  assert.equal(await vaultBindings.countDocuments({ownerId:'owner-1',revoked:true}),1);
+  assert.equal(await provenance.states.countDocuments({projectId:selectionProjectId,ownerId:'owner-1',revoked:true,ownershipRevision:2}),1);
+  console.log('GREEN PHYSICAL_ATOMIC_VAULT_REVOCATION_FRESH_PROCESS_DENIAL');
+ }else if(phase==='seed'){
   await Promise.all([projects.deleteMany({}),receipts.deleteMany({}),grants.deleteMany({}),provenance.states.deleteMany({}),provenance.ledger.deleteMany({}),provenance.grants.deleteMany({}),selectionGate.admissions.deleteMany({}),selectionAuthority.receipts.deleteMany({projectId:selectionProjectId})]);
   await vaultBindings.deleteMany({});
   await vaultAuthority.initialize();
@@ -409,6 +419,27 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
    }
    finally{await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:false}});}
    console.log('GREEN PHYSICAL_SERVER_DERIVED_OWNER_VAULT_DISCOVERY_AND_DENIAL');
+   if(phase==='recover'){
+    const old=await selectionAuthority.receipts.findOne({projectId:selectionProjectId});
+    assert.ok(old);
+    const replay={token:process.env.OWNER_TOKEN,projectId:selectionProjectId,operationId:old.operationId,expectedRevision:old.expectedRevision,nextActiveProjectId:old.nextActiveProjectId};
+    assert.equal((await selectionAuthority.select(replay)).ok,true);
+    const count=await selectionAuthority.receipts.countDocuments({projectId:selectionProjectId});
+    assert.equal((await vaultAuthority.revoke({token:process.env.INTRUDER_TOKEN})).ok,false);
+    const [revocation]=await Promise.all([vaultAuthority.revoke({token:process.env.OWNER_TOKEN}),selectionAuthority.select(replay)]);
+    assert.equal(revocation.ok,true);
+    assert.deepEqual(await vaultAuthority.revoke({token:process.env.OWNER_TOKEN}),{ok:true,replayed:true});
+    const invoke=async(path,body)=>fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+process.env.OWNER_TOKEN,'content-type':'application/json'},body:JSON.stringify(body)});
+    assert.equal((await discover(process.env.OWNER_TOKEN,{})).status,403);
+    assert.equal((await invoke('/studio/selection-read',{projectId:selectionProjectId})).status,403);
+    const {token,...body}=replay;
+    assert.equal((await invoke('/studio/selection-change',body)).status,403);
+    assert.equal((await invoke('/studio/selection-change',{...body,operationId:'post-revocation-new'})).status,403);
+    assert.equal(await selectionAuthority.receipts.countDocuments({projectId:selectionProjectId}),count);
+    assert.equal((await vaultAuthority.provision({token:process.env.OWNER_TOKEN,vaultId:selectionProjectId})).ok,false);
+    assert.equal(await provenance.states.countDocuments({projectId:selectionProjectId,ownerId:'owner-1',revoked:true,ownershipRevision:2}),1);
+    console.log('GREEN PHYSICAL_ATOMIC_VAULT_REVOCATION_RETAINED_TOKEN_AND_REPLAY_DENIAL');
+   }
   }
   const intruder=await fetch('http://127.0.0.1:'+server.address().port+'/studio/read',{method:'POST',headers:{authorization:'Bearer '+process.env.INTRUDER_TOKEN,'content-type':'application/json'},body:JSON.stringify({projectId:'film-a'})});
   assert.equal(intruder.status,403);

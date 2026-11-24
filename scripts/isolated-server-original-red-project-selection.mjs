@@ -10,13 +10,19 @@ export function createServerProjectSelectionAuthority({gate,db,client}={}){
   const session=client.startSession();let verdict={ok:false,reason:'authority-unverified'};
   try{
    await session.withTransaction(async()=>{
+    // Reset verdict on transaction retry; replay must contend with revocation
+    // on the same durable document, not return from a stale snapshot.
+    verdict={ok:false,reason:'authority-unverified'};
     const original=await receipts.findOne({projectId,operationId},{session});
     if(original){
      if(original.ownerId===ownerId&&original.expectedRevision===expectedRevision&&
        original.nextActiveProjectId===nextActiveProjectId){
       const current=await states.findOne({projectId,ownerId,revoked:false,ownershipRevision:original.ownershipRevision},{session});
-      if(current?.revision>=original.committedRevision&&current.state?.content?.activeProjectId===nextActiveProjectId)
+      if(current?.revision>=original.committedRevision&&current.state?.content?.activeProjectId===nextActiveProjectId){
+       const fenced=await states.updateOne({projectId,ownerId,revoked:false,ownershipRevision:original.ownershipRevision,revision:current.revision},{$inc:{selectionReplayFence:1}},{session});
+       if(fenced.modifiedCount!==1)throw Error('project-selection-replay-fence-conflict');
        verdict={ok:true,replayed:true,receipt:{projectId,operationId,committedRevision:original.committedRevision,serverCommitId:original.serverCommitId}};
+      }
      }
      return;
     }

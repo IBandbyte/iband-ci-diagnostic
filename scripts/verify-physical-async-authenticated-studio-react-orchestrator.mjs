@@ -19,4 +19,7 @@ for(const phase of ['seed','save','recover']){
  assert.equal(r.status,0,'physical routed signed Mongo Studio journey phase '+phase+' failed: '+(r.error?.message||''));
 }
 console.log('GREEN PHYSICAL_ROUTED_STUDIO_SIGNED_HTTP_MONGO_RESTART_EXACTLY_ONCE');
+const revoked=spawnSync(process.execPath,['./verify-physical-async-authenticated-studio-react-worker.mjs','revoked-restart'],{env:{...env,PHYSICAL_STUDIO_ROUTE:'1'},encoding:'utf8',timeout:90000});
+process.stdout.write(revoked.stdout||'');process.stderr.write(revoked.stderr||'');
+assert.equal(revoked.status,0,'fresh revoked vault process failed');
 console.log('HELD LIVE_CLERK_AND_ORIGINAL_FRONTEND_RED_AND_APPLICATION_MAIN_ADOPTION');
