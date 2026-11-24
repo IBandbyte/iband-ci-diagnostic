@@ -191,6 +191,11 @@ try{
   asyncSource=asyncSource.replace('./isolated-application-owned-studio-service-composition.mjs','./'+base+'_composed.mjs');
   writeFileSync(asyncModule,asyncSource);
   if(routeMode){
+   const factoryModule='../frontend/'+base+'_factory.mjs';files.push(factoryModule);
+   let factorySource=readFileSync('./isolated-application-studio-session-factory.mjs','utf8');
+   const factoryImport='./isolated-application-studio-async-clerk-session-adapter.mjs';
+   assert.equal(factorySource.split(factoryImport).length,2);
+   writeFileSync(factoryModule,factorySource.replace(factoryImport,'./'+base+'_async_session.mjs'));
    const {transformPinnedStudioRouteToAuthorityShell}=await import('../scripts/isolated-pinned-studio-route-authority-candidate.mjs');
    const appPath='../frontend/src/'+base+'_App.jsx';
    const shellPath='../frontend/src/components/studio/mentor/StudioRouteAuthorityShell.jsx';
@@ -213,7 +218,9 @@ try{
    const marker='const asyncSession=makeSession(async()=>globalThis.__diagnosticToken);';
    assert.equal(entry.split(marker).length,2);
    entry=entry.split(marker)[0]+`import {BrowserRouter} from 'react-router-dom';import App from './src/${base}_App.jsx';import {setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState} from './src/components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
-export function createRouteSession({getAuthToken,onAuthInvalidated}){const session=makeSession(getAuthToken,onAuthInvalidated);globalThis.__routeSession=session;return session;}
+import {createApplicationStudioSessionFactory} from './${base}_factory.mjs';
+const routeFactory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async()=> 'physical-studio-selection-vault',readLocalBytes:()=>JSON.stringify(globalThis.localStorage.getItem('iband.creator-memory')),onSelection:x=>globalThis.__diagnosticSelectionView?.(x),onReadOnly:x=>globalThis.__diagnosticApplicationView?.(x),onEditable:x=>globalThis.__diagnosticEditableView?.(x),onView:v=>globalThis.__continuityView?.(v)});
+export function createRouteSession(auth){const session=routeFactory(auth);globalThis.__routeSession=session;return session;}
 export function RouteWorkspace(props){const {applicationSecondFilm,studioServices,studioRecoveryServices}=props;globalThis.__physicalAsyncSessionReady=true;globalThis.__serverSelection=studioServices.selection;globalThis.__applicationEditable=studioServices.editable;globalThis.__continuity=studioRecoveryServices.continuity;Object.defineProperty(globalThis,'__diagnosticConversationPending',{configurable:true,get:()=>studioServices.pending});globalThis.__routeRetainedServices=studioServices;return <CreatorWorkspace {...props} creatorName="Diagnostic Creator"/>;}
 globalThis.__routeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>globalThis.__diagnosticToken});
 globalThis.__routeSignOut=()=>clearMovieMentorCreatorAuthState();
@@ -233,9 +240,18 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
   if(routeMode){
    await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
    assert.equal(await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).count(),0);
-   await page.evaluate(()=>globalThis.__routeSignIn());
+   await page.evaluate(token=>{globalThis.__diagnosticToken=token;globalThis.__routeSignIn()},process.env.INTRUDER_TOKEN);
+   await page.locator('[data-denial-reason="studio-auth-unverified"]').waitFor({state:'attached',timeout:15000});
+   assert.equal(await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).count(),0);
+   assert.equal(await page.evaluate(()=>globalThis.__routeSession.getServices()),null);
+   console.log('GREEN PHYSICAL_APPLICATION_FACTORY_INTRUDER_VAULT_ADMISSION_DENIED');
+   await page.evaluate(token=>{globalThis.__diagnosticToken=token;globalThis.__routeSignIn()},process.env.OWNER_TOKEN);
   }
   await page.getByRole('heading',{name:/Welcome back, Diagnostic Creator/}).waitFor({timeout:15000});
+  if(routeMode){
+   assert.equal(await page.evaluate(()=>globalThis.__routeSession.getServices().recoveryServices().selectionVaultId),selectionProjectId);
+   console.log('GREEN PHYSICAL_APPLICATION_FACTORY_SIGNED_VAULT_ADMISSION_BEFORE_WORKSPACE');
+  }
   const selected=page.getByLabel('Server selection'),recovered=page.getByLabel('Recovered film'),editable=page.getByLabel('Server editable authority'),local=page.getByLabel('Local movie identity'),continuity=page.getByLabel('Consolidated continuity mode');
   async function poll(loc,word){for(let i=0;i<120;i++){if((await loc.textContent()||'').includes(word))return;await delay(40)}throw Error('expected '+word+' got '+await loc.textContent())}
   await page.getByRole('button',{name:'Open server continuity'}).click();

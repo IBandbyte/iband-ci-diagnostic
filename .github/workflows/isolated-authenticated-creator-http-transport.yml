@@ -377,6 +377,7 @@ jobs:
           cp ../scripts/verify-physical-composed-application-studio-react-orchestrator.mjs .
           node ./verify-physical-composed-application-studio-react-orchestrator.mjs
           cp ../scripts/isolated-application-studio-async-clerk-session-adapter.mjs .
+          cp ../scripts/isolated-application-studio-session-factory.mjs .
           cp ../scripts/verify-physical-async-authenticated-studio-react-worker.mjs .
           cp ../scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs .
           node ./verify-physical-async-authenticated-studio-react-orchestrator.mjs

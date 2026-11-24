@@ -2,8 +2,8 @@
 // network destination or browser storage is trusted. The server must verify
 // the explicitly resolved selection-vault identity before services escape.
 import {createAsyncAuthenticatedStudioSession} from './isolated-application-studio-async-clerk-session-adapter.mjs';
-export function createApplicationStudioSessionFactory({transport,resolveSelectionVaultId,readLocalBytes}={}){
- if([transport,resolveSelectionVaultId,readLocalBytes].some(x=>typeof x!=='function'))
+export function createApplicationStudioSessionFactory({transport,resolveSelectionVaultId,readLocalBytes,onSelection=()=>{},onReadOnly=()=>{},onEditable=()=>{},onView=()=>{}}={}){
+ if([transport,resolveSelectionVaultId,readLocalBytes,onSelection,onReadOnly,onEditable,onView].some(x=>typeof x!=='function'))
   throw Error('application-studio-factory-dependencies-required');
  return function createSession({getAuthToken,onAuthInvalidated=()=>{}}={}){
   if(typeof getAuthToken!=='function'||typeof onAuthInvalidated!=='function')throw Error('application-studio-auth-required');
@@ -20,7 +20,7 @@ export function createApplicationStudioSessionFactory({transport,resolveSelectio
     if(!current())return {ok:false,reason:'stale-authentication'};
     if(typeof id!=='string'||!id||id.trim()!==id)return {ok:false,reason:'selection-vault-unavailable'};
     const candidate=createAsyncAuthenticatedStudioSession({
-     getAuthToken,transport,selectionVaultId:id,readLocalBytes,
+     getAuthToken,transport,selectionVaultId:id,readLocalBytes,onSelection,onReadOnly,onEditable,onView,
      onAuthInvalidated:reason=>{if(current()){invalidate();onAuthInvalidated(reason)}}
     });
     inner=candidate;
