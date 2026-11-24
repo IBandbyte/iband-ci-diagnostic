@@ -3,7 +3,8 @@
 // tiny read-only workspace to observe whether the shell actually mounts.
 // Previously-certified native React/Mongo courts remain separate.
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync,unlinkSync} from 'node:fs';
+import {readFileSync,writeFileSync,unlinkSync,mkdtempSync,rmSync} from 'node:fs';
+import {basename} from 'node:path';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
 import {transformPinnedStudioRouteToAuthorityShell} from './isolated-pinned-studio-route-authority-candidate.mjs';
@@ -18,7 +19,7 @@ const files=[
  root+'/'+base+'.html',
  root+'/'+base+'_vite.config.mjs'
 ];
-let vite,browser,page,logs='';
+let vite,browser,page,logs='',moduleDir;
 const errors=[],browserDiagnostics=[];
 try{
  const pinned=readFileSync(root+'/src/App.jsx','utf8');
@@ -35,10 +36,28 @@ try{
  writeFileSync(files[2],`import React from 'react';export default function TestReadOnlyWorkspace({applicationSecondFilm,studioServices,studioRecoveryServices}){if(!applicationSecondFilm||!studioServices?.request||!studioRecoveryServices)return <p data-testid="invalid-authority">INVALID</p>;return <div data-testid="verified-studio">AUTHENTICATED STUDIO READY</div>}`);
  writeFileSync(files[3],readFileSync('./isolated-studio-route-authority-react-shell.jsx','utf8'));
  writeFileSync(files[4],readFileSync('./isolated-studio-authority-route-lifecycle.mjs','utf8'));
- writeFileSync(files[1],`import React from 'react';import{createRoot}from'react-dom/client';import{BrowserRouter}from'react-router-dom';import App from './${base}_App.jsx';import{setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState}from'./components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
+ // Copy exact diagnostic composition and its relative module graph into a disposable directory.
+ moduleDir=mkdtempSync(root+'/src/'+base+'_modules_');
+ const copied=new Set();
+ function copyModule(name){
+  assert.match(name,/^isolated-[a-z0-9-]+\.mjs$/);
+  if(copied.has(name))return;
+  copied.add(name);
+  const source=readFileSync('../scripts/'+name,'utf8');
+  for(const match of source.matchAll(/from\s+['"]\.\/([^'"]+)['"]/g))copyModule(match[1]);
+  writeFileSync(moduleDir+'/'+name,source);
+ }
+ copyModule('isolated-application-studio-async-clerk-session-adapter.mjs');
+ writeFileSync(files[1],`import {createAsyncAuthenticatedStudioSession} from './${basename(moduleDir)}/isolated-application-studio-async-clerk-session-adapter.mjs';import React from 'react';import{createRoot}from'react-dom/client';import{BrowserRouter}from'react-router-dom';import App from './${base}_App.jsx';import{setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState}from'./components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
 let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return clearMovieMentorCreatorAuthState();if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?'token-2':'token-1'});};
 globalThis.__physicalReleaseDelayed=()=>{release?.('stale-token');release=null};
-export function createPhysicalSession({getAuthToken}){generations++;let invalidated=false,services=null;return{invalidate(){invalidated=true;services=null},getServices(){return invalidated?null:services},async open(){const token=await getAuthToken();if(invalidated||typeof token!=='string'||!token.startsWith('token-'))return{ok:false};services={applicationSecondFilm:{getReadOnly:()=>null},studioServices:{editable:{},selection:{},request:async()=>{if(invalidated)throw Error('invalidated')}},recoveryServices:()=>({continuity:{},token,selectionVaultId:'vault'})};return{ok:true,services}}}};
+let requests=[];let sessions=[];globalThis.__physicalSessions=sessions;globalThis.__physicalRequests=requests;
+export function createPhysicalSession({getAuthToken}){
+ generations++;
+ const session=createAsyncAuthenticatedStudioSession({getAuthToken,selectionVaultId:'vault',readLocalBytes:()=>localStorage.getItem('iband.creator-memory'),transport:async({path,token,body})=>{requests.push({path,token,body});return {ok:true,projectId:body.projectId}}});
+ sessions.push(session);
+ return session;
+}
 history.replaceState({},'', '/studio');
 createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`);
  writeFileSync(files[5],`<html><body><div id="root"></div><script type="module" src="/src/${base}_entry.jsx"></script></body></html>`);
@@ -66,20 +85,37 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  await page.evaluate(()=>globalThis.__physicalReleaseDelayed());
  await delay(150);
  assert.equal(await page.getByTestId('verified-studio').count(),1);
+ const probe=await page.evaluate(async()=>{
+  const sessions=globalThis.__physicalSessions;
+  const live=sessions.at(-1).getServices();
+  const stale=sessions.at(-2).getServices();
+  if(stale!==null||live.recoveryServices().token!=='token-2')throw Error('wrong session');
+  globalThis.__retainedStudioServices=live;
+  await live.studioServices.request('/studio/read',{projectId:'film-b'});
+  return globalThis.__physicalRequests;
+ });
+ assert.deepEqual(probe,[{path:'/studio/read',token:'token-2',body:{projectId:'film-b'}}]);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_STALE_ASYNC_AUTH_DOES_NOT_REPLACE_VERIFIED_SESSION');
+ console.log('GREEN PHYSICAL_STUDIO_ROUTE_REAL_ASYNC_COMPOSITION_TOKEN_BOUND_REQUEST');
  await page.evaluate(()=>globalThis.__physicalRouteAuth('signout'));
  await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
+ assert.equal(await page.evaluate(async()=>{
+  try{await globalThis.__retainedStudioServices.studioServices.request('/studio/read',{projectId:'film-b'});return false}catch{return globalThis.__physicalRequests.length===1&&globalThis.__physicalSessions.at(-1).getServices()===null}
+ }),true);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_SIGNOUT_UNMOUNTS_WORKSPACE');
+ console.log('GREEN PHYSICAL_STUDIO_ROUTE_SIGNOUT_REVOKES_RETAINED_COMPOSED_SERVICES');
  await page.evaluate(()=>globalThis.__physicalRouteAuth('first'));
  await page.getByTestId('verified-studio').waitFor({timeout:15000});
  await page.evaluate(()=>{history.pushState({},'', '/');dispatchEvent(new PopStateEvent('popstate'))});
+ await page.getByTestId('verified-studio').waitFor({state:'detached',timeout:15000});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
+ await page.waitForFunction(()=>globalThis.__physicalSessions.at(-1).getServices()===null);
  assert.deepEqual(errors,[],'browser route shell error: '+errors.join(' | '));
  assert.equal(readFileSync(root+'/src/App.jsx','utf8'),pinned);
  assert.equal(readFileSync(root+'/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8'),regression);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_UNMOUNT_AND_PINNED_SOURCE_PRESERVED');
- console.log('HELD REAL_CLERK_SESSION_FACTORY_AND_ORIGINAL_LINE_71_RED');
+ console.log('HELD LIVE_CLERK_AND_PHYSICAL_ROUTE_HTTP_MONGO_COMPOSITION_AND_ORIGINAL_LINE_71_RED');
 }catch(error){
  console.error('PHYSICAL_ROUTE_BROWSER_FAILURE',error);
  if(page){console.error('URL',page.url());console.error('DOM',(await page.content().catch(()=>'' )).slice(0,8000));}
@@ -89,4 +125,5 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  try{await browser?.close()}catch{}
  try{vite?.kill('SIGTERM')}catch{}
  for(const p of files){try{unlinkSync(p)}catch{}}
+ if(moduleDir)rmSync(moduleDir,{recursive:true,force:true});
 }
