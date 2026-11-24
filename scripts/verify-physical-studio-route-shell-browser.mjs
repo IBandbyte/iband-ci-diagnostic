@@ -17,12 +17,19 @@ const files=[
  root+'/src/components/studio/mentor/StudioRouteAuthorityShell.jsx',
  root+'/src/components/studio/mentor/MovieMentorStudioRouteLifecycle.mjs',
  root+'/'+base+'.html',
- root+'/'+base+'_vite.config.mjs'
+ root+'/'+base+'_vite.config.mjs',
+ root+'/src/'+base+'_ClerkFixture.jsx'
 ];
 let vite,browser,page,logs='',moduleDir;
 const errors=[],browserDiagnostics=[];
 try{
  const pinned=readFileSync(root+'/src/App.jsx','utf8');
+ const pinnedMain=readFileSync(root+'/src/main.jsx','utf8');
+ const bridgePath=root+'/src/components/studio/mentor/MovieMentorCreatorAuthenticationBridge.jsx';
+ const pinnedBridge=readFileSync(bridgePath,'utf8');
+ assert.match(pinnedMain,/<React.StrictMode>/);
+ assert.match(pinnedMain,/<MovieMentorCreatorAuthenticationBridge\s*\/>/);
+ assert.match(pinnedBridge,/useAuth\(\)/);
  const regression=readFileSync(root+'/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8');
  assert.match(regression,/assert\.equal\(cleared\.acquired, true\)/);
  let app=transformPinnedStudioRouteToAuthorityShell(pinned);
@@ -48,8 +55,18 @@ try{
   writeFileSync(moduleDir+'/'+name,source);
  }
  copyModule('isolated-application-studio-async-clerk-session-adapter.mjs');
- writeFileSync(files[1],`import {createAsyncAuthenticatedStudioSession} from './${basename(moduleDir)}/isolated-application-studio-async-clerk-session-adapter.mjs';import React from 'react';import{createRoot}from'react-dom/client';import{BrowserRouter}from'react-router-dom';import App from './${base}_App.jsx';import{setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState}from'./components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
-let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return clearMovieMentorCreatorAuthState();if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?'token-2':'token-1'});};
+ // The real pinned bridge is mounted unchanged; only its Clerk hook is
+ // replaced by a controlled provider in this disposable browser build.
+ writeFileSync(files[7],`import React,{createContext,useContext,useState} from 'react';
+const Context=createContext({isLoaded:false,isSignedIn:false,getToken:null});
+export function useAuth(){return useContext(Context)}
+export function FixtureProvider({children}){
+ const [state,setState]=useState({isLoaded:false,isSignedIn:false,getToken:null});
+ globalThis.__fixtureSetAuth=setState;
+ return <Context.Provider value={state}>{children}</Context.Provider>;
+}`);
+ writeFileSync(files[1],`import {createAsyncAuthenticatedStudioSession} from './${basename(moduleDir)}/isolated-application-studio-async-clerk-session-adapter.mjs';import React from 'react';import{createRoot}from'react-dom/client';import{BrowserRouter}from'react-router-dom';import App from './${base}_App.jsx';import MovieMentorCreatorAuthenticationBridge from './components/studio/mentor/MovieMentorCreatorAuthenticationBridge.jsx';import {FixtureProvider} from './${base}_ClerkFixture.jsx';
+let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:false,getToken:null});if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?'token-2':'token-1'});};
 globalThis.__physicalReleaseDelayed=()=>{release?.('stale-token');release=null};
 let requests=[];let sessions=[];globalThis.__physicalSessions=sessions;globalThis.__physicalRequests=requests;
 export function createPhysicalSession({getAuthToken}){
@@ -59,9 +76,9 @@ export function createPhysicalSession({getAuthToken}){
  return session;
 }
 history.replaceState({},'', '/studio');
-createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`);
+createRoot(document.getElementById('root')).render(<React.StrictMode><FixtureProvider><MovieMentorCreatorAuthenticationBridge/><BrowserRouter><App/></BrowserRouter></FixtureProvider></React.StrictMode>);`);
  writeFileSync(files[5],`<html><body><div id="root"></div><script type="module" src="/src/${base}_entry.jsx"></script></body></html>`);
- writeFileSync(files[6],`import{defineConfig}from'vite';import react from'@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()]});`);
+ writeFileSync(files[6],`import{defineConfig}from'vite';import react from'@vitejs/plugin-react-swc';import{resolve}from'node:path';export default defineConfig({plugins:[react()],resolve:{alias:[{find:'@clerk/react',replacement:resolve('src/${base}_ClerkFixture.jsx')}]}});`);
  const port=52819;
  vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port',String(port),'--strictPort','--config',base+'_vite.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
  logs='';vite.stderr.on('data',x=>logs+=x);vite.stdout.on('data',x=>logs+=x);
@@ -80,6 +97,7 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  await page.evaluate(()=>globalThis.__physicalRouteAuth('delayed'));
  await delay(150);
  assert.equal(await page.getByTestId('verified-studio').count(),0);
+ await page.waitForFunction(()=>globalThis.__physicalSessions.length>=1);
  await page.evaluate(()=>globalThis.__physicalRouteAuth('second'));
  await page.getByTestId('verified-studio').waitFor({timeout:15000});
  await page.evaluate(()=>globalThis.__physicalReleaseDelayed());
@@ -114,6 +132,9 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  assert.deepEqual(errors,[],'browser route shell error: '+errors.join(' | '));
  assert.equal(readFileSync(root+'/src/App.jsx','utf8'),pinned);
  assert.equal(readFileSync(root+'/scripts/verify-movie-mentor-conversation-continuity.mjs','utf8'),regression);
+ assert.equal(readFileSync(bridgePath,'utf8'),pinnedBridge);
+ assert.equal(readFileSync(root+'/src/main.jsx','utf8'),pinnedMain);
+ console.log('GREEN PHYSICAL_PINNED_CLERK_BRIDGE_STRICT_MODE_CONTROLLED_AUTH_LIFECYCLE');
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_UNMOUNT_AND_PINNED_SOURCE_PRESERVED');
  console.log('HELD LIVE_CLERK_AND_PHYSICAL_ROUTE_HTTP_MONGO_COMPOSITION_AND_ORIGINAL_LINE_71_RED');
 }catch(error){
