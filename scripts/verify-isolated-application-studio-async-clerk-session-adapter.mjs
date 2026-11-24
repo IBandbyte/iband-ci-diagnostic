@@ -28,7 +28,7 @@ const loaded=await started.services.studioServices.selection.load({
  token:'clerk-signed-owner',projectId:'vault'
 });
 assert.equal(loaded.ok,true);
-assert.equal(authCalls,2);
+assert.equal(authCalls,3);
 assert.equal(networkCalls,1);
 assert.equal(sent[0].token,'clerk-signed-owner');
 assert.equal(bytes,'original-film-a');
@@ -77,6 +77,44 @@ release('clerk-signed-owner');
 assert.deepEqual(await inFlight,{ok:false,reason:'stale-authentication'});
 assert.equal(race.getServices(),null);
 console.log('GREEN ASYNC_CLERK_MISSING_AND_STALE_INFLIGHT_TOKEN_DENIED');
+
+// Deferred response must not escape an obsolete session or invalidate its successor.
+let currentToken='owner-old',releaseResponse,entered;
+const enteredPromise=new Promise(r=>entered=r);
+const responsePromise=new Promise(r=>releaseResponse=r);
+const delayedSession=createAsyncAuthenticatedStudioSession({
+ getAuthToken:async()=>currentToken,selectionVaultId:'vault',readLocalBytes:()=>bytes,
+ transport:async({token})=>{if(token==='owner-old'){entered();return responsePromise;}return {ok:true,token};}
+});
+const oldSession=await delayedSession.open();
+const pending=oldSession.services.studioServices.request('/studio/read',{projectId:'film-b'});
+const denied=assert.rejects(pending,/stale-authenticated-studio-session/);
+await enteredPromise;
+currentToken='owner-new';
+const successor=await delayedSession.open();
+assert.equal(successor.ok,true);
+releaseResponse({ok:true,obsolete:true});
+await denied;
+assert.equal(delayedSession.getServices(),successor.services);
+assert.deepEqual(await successor.services.studioServices.request('/studio/read',{projectId:'film-b'}),{ok:true,token:'owner-new'});
+console.log('GREEN ASYNC_CLERK_DELAYED_RESPONSE_DENIED_WITH_SUCCESSOR_PRESERVED');
+
+let rotateToken='before',releaseRotated,enteredRotated;
+const rotatedEntered=new Promise(r=>enteredRotated=r);
+const rotatedResponse=new Promise(r=>releaseRotated=r);
+const rotating=createAsyncAuthenticatedStudioSession({
+ getAuthToken:async()=>rotateToken,selectionVaultId:'vault',readLocalBytes:()=>bytes,
+ transport:async()=>{enteredRotated();return rotatedResponse;}
+});
+const before=await rotating.open();
+const rotatingRequest=before.services.studioServices.request('/studio/read',{projectId:'film-b'});
+const rotationDenied=assert.rejects(rotatingRequest,/authenticated-session-rotated/);
+await rotatedEntered;
+rotateToken='after';releaseRotated({ok:true});
+await rotationDenied;
+assert.equal(rotating.getServices(),null);
+assert.throws(()=>before.services.recoveryServices(),/owner-token-unavailable/);
+console.log('GREEN ASYNC_CLERK_ROTATION_DURING_HTTP_RESPONSE_DENIED');
 
 assert.equal(readFileSync('./frontend/src/App.jsx','utf8'),appSource);
 assert.equal(readFileSync('./frontend/src/components/studio/CreatorWorkspace.jsx','utf8'),workspace);

@@ -26,16 +26,28 @@ export function createAsyncAuthenticatedStudioSession({
   if(current!==generation)return {ok:false,reason:'stale-authentication'};
   if(!valid(token))return {ok:false,reason:'authenticated-token-unavailable'};
   const guardedTransport=async({path,token:presented,body})=>{
-   if(current!==generation||session?.token!==token||presented!==token)
-    throw Error('stale-authenticated-studio-session');
-   let latest;
-   try{latest=await getAuthToken()}catch{
-    invalidate();throw Error('authenticated-token-unavailable');
-   }
-   if(current!==generation||!valid(latest)||latest!==token){
-    invalidate();throw Error('authenticated-session-rotated');
-   }
-   return transport({path,token,body});
+   const assertCurrent=()=>{
+    if(current!==generation||session?.token!==token||presented!==token)
+     throw Error('stale-authenticated-studio-session');
+   };
+   const checkToken=async()=>{
+    assertCurrent();
+    let latest;
+    try{latest=await getAuthToken()}catch{
+     assertCurrent();
+     invalidate();throw Error('authenticated-token-unavailable');
+    }
+    assertCurrent();
+    if(!valid(latest)||latest!==token){
+     invalidate();throw Error('authenticated-session-rotated');
+    }
+   };
+   await checkToken();
+   assertCurrent();
+   const result=await transport({path,token,body});
+   await checkToken();
+   assertCurrent();
+   return result;
   };
   const app=createApplicationOwnedStudioServices({
    transport:guardedTransport,getToken:()=>current===generation?token:'',
