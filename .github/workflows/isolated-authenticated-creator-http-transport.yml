@@ -71,6 +71,7 @@ on:
       - 'scripts/verify-isolated-studio-route-auth-lifecycle.mjs'
       - 'scripts/isolated-studio-route-authority-react-shell.jsx'
       - 'scripts/verify-isolated-studio-route-react-shell-source.mjs'
+      - 'scripts/verify-physical-studio-route-shell-browser.mjs'
       - 'scripts/verify-pinned-application-owned-conversation-missing-services-denial.mjs'
       - 'scripts/verify-source-anchored-application-adoption-readiness.mjs'
       - 'scripts/verify-physical-application-owned-second-film-react-worker.mjs'
@@ -375,3 +376,8 @@ jobs:
           cp ../scripts/verify-physical-async-authenticated-studio-react-worker.mjs .
           cp ../scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs .
           node ./verify-physical-async-authenticated-studio-react-orchestrator.mjs
+          cp ../scripts/isolated-pinned-studio-route-authority-candidate.mjs .
+          cp ../scripts/isolated-studio-authority-route-lifecycle.mjs .
+          cp ../scripts/isolated-studio-route-authority-react-shell.jsx .
+          cp ../scripts/verify-physical-studio-route-shell-browser.mjs .
+          node ./verify-physical-studio-route-shell-browser.mjs
