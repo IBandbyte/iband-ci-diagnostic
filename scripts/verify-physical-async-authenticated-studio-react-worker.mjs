@@ -14,6 +14,7 @@ import {transformPinnedApplicationOwnedRecoveryServices} from './isolated-pinned
 import {createProvenanceAuthority} from './isolated-server-publication-provenance.mjs';
 import {createWritableAdmissionGate} from './isolated-writable-admission-gate.mjs';
 import {createServerProjectSelectionAuthority} from './isolated-server-original-red-project-selection.mjs';
+import {createStudioOwnerVaultAuthority} from './isolated-studio-owner-vault-authority.mjs';
 import {createPhysicalProvenanceFencedSceneSettlement} from './isolated-physical-provenance-fenced-scene-settlement.mjs';
 import createCreatorMemory,{createMemoryStorageAdapter} from '../frontend/src/components/studio/mentor/CreatorMemory.js';
 import createMovieMentorStudioIdentityRuntime from '../frontend/src/components/studio/mentor/MovieMentorStudioIdentityRuntime.js';
@@ -55,14 +56,13 @@ let server,vite,browser;
 const authenticate=header=>{
  try{const parts=header?.slice(7).split('.');if(!header.startsWith('Bearer ')||parts.length!==3)return null;const h=JSON.parse(Buffer.from(parts[0],'base64url'));const p=JSON.parse(Buffer.from(parts[1],'base64url'));const now=Math.floor(Date.now()/1000);if(h.alg!=='RS256'||p.iss!=='https://isolated-auth.test'||p.aud!=='movie-mentor-creator-write'||p.exp<=now||p.nbf>now)return null;return verify('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),key,Buffer.from(parts[2],'base64url'))?p.sub:null}catch{return null}
 };
+const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
 const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>32768)throw Error('too-large')}return JSON.parse(s)};
 try{
  if(phase==='seed'){
   await Promise.all([projects.deleteMany({}),receipts.deleteMany({}),grants.deleteMany({}),provenance.states.deleteMany({}),provenance.ledger.deleteMany({}),provenance.grants.deleteMany({}),selectionGate.admissions.deleteMany({}),selectionAuthority.receipts.deleteMany({projectId:selectionProjectId})]);
   await vaultBindings.deleteMany({});
-  await vaultBindings.createIndex({ownerId:1},{unique:true});
-  await vaultBindings.createIndex({vaultId:1},{unique:true});
-  await vaultBindings.insertOne({ownerId:'owner-1',vaultId:selectionProjectId,revoked:false});
+  await vaultAuthority.initialize();
   await receipts.createIndex({projectId:1,operationId:1},{unique:true});
   await grants.createIndex({projectId:1,operationId:1},{unique:true});
   await projects.insertMany([{_id:'film-a',ownerId:'owner-1',revision:1,state:{scenes:[{id:'scene-one',text:'Opening scene'}]}},{_id:'film-b',ownerId:'owner-1',revision:4,state:{scenes:[{id:'scene-b-next',text:'Film B next confirmed scene'}]}}]);
@@ -74,6 +74,13 @@ try{
   for(let i=0;i<4;i++){const a=await provenance.append({token:process.env.OWNER_TOKEN,projectId:'film-b',operationId:'publish-film-b-'+i,expectedRevision:i,content:{scenes:i===3?[{id:'scene-b-next',text:'Film B next confirmed scene'}]:[]}});assert.equal(a.ok,true);}
   const started=await provenance.append({token:process.env.OWNER_TOKEN,projectId:selectionProjectId,operationId:'prior-confirmed-film',expectedRevision:0,content:{activeProjectId:'film-a',projects:[{id:'film-a',ownerId:'owner-1'},{id:'film-b',ownerId:'owner-1'}]}});
   assert.equal(started.ok,true);
+  const provision=()=>vaultAuthority.provision({token:process.env.OWNER_TOKEN,vaultId:selectionProjectId});
+  const attempts=await Promise.all([provision(),provision(),provision()]);
+  assert.ok(attempts.every(x=>x.ok===true&&x.vaultId===selectionProjectId));
+  assert.equal(await vaultBindings.countDocuments({}),1);
+  assert.equal((await vaultAuthority.provision({token:process.env.INTRUDER_TOKEN,vaultId:selectionProjectId})).ok,false);
+  assert.equal((await vaultAuthority.provision({token:process.env.OWNER_TOKEN,vaultId:'film-b'})).ok,false);
+  console.log('GREEN PHYSICAL_OWNER_VAULT_PROVISION_CONCURRENT_CREATE_ONCE');
   console.log('GREEN PHYSICAL_STUDIO_SELECTION_SIGNED_MONGO_PROVENANCE_SEEDED');
  }else{
   server=createServer(async(req,res)=>{
@@ -85,11 +92,8 @@ try{
     // Isolated candidate endpoint: derive identity only from verified subject.
     if(req.url==='/studio/selection-vault'){
       if(!input||Object.keys(input).length!==0)return reply(400,{ok:false});
-      const binding=await vaultBindings.findOne({ownerId:owner,revoked:false});
-      if(!binding)return reply(403,{ok:false});
-      const proof=await selectionAuthority.read({token:req.headers.authorization.slice(7),projectId:binding.vaultId});
-      if(proof.ok!==true||proof.projectId!==binding.vaultId)return reply(403,{ok:false});
-      return reply(200,{ok:true,vaultId:binding.vaultId});
+      const proof=await vaultAuthority.resolve({token:req.headers.authorization.slice(7)});
+      return reply(proof.ok?200:403,proof);
     }
     if(!input?.projectId)return reply(400,{ok:false});
     if(req.url==='/studio/selection-read'){
@@ -398,7 +402,11 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
    assert.equal((await discover(process.env.INTRUDER_TOKEN,{})).status,403);
    assert.equal((await discover(process.env.OWNER_TOKEN,{vaultId:'foreign'})).status,400);
    await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:true}});
-   try{assert.equal((await discover(process.env.OWNER_TOKEN,{})).status,403);}
+   try{assert.equal((await discover(process.env.OWNER_TOKEN,{})).status,403);
+    assert.equal((await vaultAuthority.provision({token:process.env.OWNER_TOKEN,vaultId:selectionProjectId})).ok,false);
+    assert.equal(await vaultBindings.countDocuments({ownerId:'owner-1',revoked:true}),1);
+    console.log('GREEN PHYSICAL_REVOKED_VAULT_CANNOT_BE_REPROVISIONED');
+   }
    finally{await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:false}});}
    console.log('GREEN PHYSICAL_SERVER_DERIVED_OWNER_VAULT_DISCOVERY_AND_DENIAL');
   }
