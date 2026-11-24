@@ -77,6 +77,12 @@ try{
   assert.equal(canonical.revoked,true);
   assert.equal(canonical.revision,1);
   assert.equal(await provenance.ledger.countDocuments({projectId:canonical.projectId}),1);
+  const recoveredBinding=await vaultBindings.findOne({ownerId:'rollback-owner',revoked:false});
+  assert.ok(recoveredBinding);
+  assert.deepEqual(await vaultAuthority.resolve({token:process.env.ROLLBACK_OWNER_TOKEN}),{ok:true,vaultId:recoveredBinding.vaultId});
+  assert.equal(await provenance.states.countDocuments({ownerId:'rollback-owner'}),1);
+  assert.equal(await provenance.ledger.countDocuments({ownerId:'rollback-owner'}),1);
+  console.log('GREEN PHYSICAL_VAULT_GENESIS_ROLLBACK_RETRY_FRESH_PROCESS_READBACK');
   console.log('GREEN PHYSICAL_CANONICAL_VAULT_GENESIS_FRESH_PROCESS_NON_RESURRECTION');
   console.log('GREEN PHYSICAL_NEW_SELECTION_WRITE_REVOCATION_FRESH_PROCESS_DENIAL');
   console.log('GREEN PHYSICAL_ATOMIC_VAULT_REVOCATION_FRESH_PROCESS_DENIAL');
@@ -115,6 +121,12 @@ try{
       if(!input||Object.keys(input).length!==0)return reply(400,{ok:false});
       const proof=await vaultAuthority.resolve({token:req.headers.authorization.slice(7)});
       return reply(proof.ok?200:403,proof);
+    }
+    // Isolated authenticated creation endpoint; identity and content are server-owned.
+    if(req.url==='/studio/selection-vault-create'){
+      if(!input||Array.isArray(input)||typeof input!=='object'||Object.keys(input).length!==0)return reply(400,{ok:false});
+      const result=await vaultAuthority.create({token:req.headers.authorization.slice(7)});
+      return reply(result.ok?(result.replayed?200:201):403,result);
     }
     if(!input?.projectId)return reply(400,{ok:false});
     if(req.url==='/studio/selection-read'){
@@ -436,6 +448,37 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
     assert.equal((await vaultAuthority.revoke({token:process.env.INTRUDER_TOKEN})).ok,false);
     // Canonical creation uses a separate disposable principal so existing
     // fixture-backed ownership and intruder controls remain independent.
+    // Inject an exception after all three writes but before transaction commit.
+    const rollbackToken=process.env.ROLLBACK_OWNER_TOKEN;
+    let attemptedVault,attemptsAtSeam=0;
+    const faulted=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read,beforeGenesisCommit:async({ownerId,vaultId})=>{
+     assert.equal(ownerId,'rollback-owner');attemptedVault=vaultId;attemptsAtSeam++;
+     throw Error('injected-vault-genesis-abort');
+    }});
+    await assert.rejects(()=>faulted.create({token:rollbackToken}),/injected-vault-genesis-abort/);
+    assert.equal(attemptsAtSeam,1);assert.ok(attemptedVault);
+    assert.equal(await vaultBindings.countDocuments({ownerId:'rollback-owner'}),0);
+    assert.equal(await provenance.states.countDocuments({ownerId:'rollback-owner'}),0);
+    assert.equal(await provenance.ledger.countDocuments({ownerId:'rollback-owner'}),0);
+    assert.equal((await vaultAuthority.resolve({token:rollbackToken})).ok,false);
+    console.log('GREEN PHYSICAL_CANONICAL_VAULT_GENESIS_ABORT_ROLLS_BACK_ALL_THREE_WRITES');
+    const endpoint=async(token,body)=>fetch('http://127.0.0.1:'+server.address().port+'/studio/selection-vault-create',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});
+    assert.equal((await endpoint('invalid',{})).status,401);
+    for(const bad of [{vaultId:'foreign'},{ownerId:'owner-1'},{content:{projects:[]}},[],null])assert.equal((await endpoint(rollbackToken,bad)).status,400);
+    assert.equal(await vaultBindings.countDocuments({ownerId:'rollback-owner'}),0);
+    const retried=await endpoint(rollbackToken,{});
+    assert.equal(retried.status,201);
+    const recoveredGenesis=await retried.json();
+    assert.equal(recoveredGenesis.ok,true);assert.notEqual(recoveredGenesis.vaultId,attemptedVault);
+    const duplicate=await endpoint(rollbackToken,{});
+    assert.equal(duplicate.status,200);assert.deepEqual(await duplicate.json(),{ok:true,vaultId:recoveredGenesis.vaultId,replayed:true});
+    assert.equal(await vaultBindings.countDocuments({ownerId:'rollback-owner'}),1);
+    assert.equal(await provenance.states.countDocuments({ownerId:'rollback-owner'}),1);
+    assert.equal(await provenance.ledger.countDocuments({ownerId:'rollback-owner'}),1);
+    assert.equal(await provenance.states.countDocuments({projectId:attemptedVault}),0);
+    assert.equal(await provenance.ledger.countDocuments({projectId:attemptedVault}),0);
+    assert.deepEqual(await vaultAuthority.resolve({token:rollbackToken}),{ok:true,vaultId:recoveredGenesis.vaultId});
+    console.log('GREEN PHYSICAL_AUTHENTICATED_VAULT_CREATION_ENDPOINT_RETRY_AND_INPUT_DENIAL');
     const canonicalToken=process.env.CANONICAL_OWNER_TOKEN;
     assert.ok(canonicalToken);
     const created=await Promise.all(Array.from({length:3},()=>vaultAuthority.create({token:canonicalToken})));

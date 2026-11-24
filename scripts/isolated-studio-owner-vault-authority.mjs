@@ -2,8 +2,8 @@
 // never a public browser request. It binds an already established owned vault.
 import {createHash,randomUUID} from 'node:crypto';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function createStudioOwnerVaultAuthority({bindings,states,ledger,client,authenticateOwner,readSelection}={}){
- if(!bindings||!states||!ledger||!client||typeof authenticateOwner!=='function'||typeof readSelection!=='function')throw Error('vault-authority-dependencies-required');
+export function createStudioOwnerVaultAuthority({bindings,states,ledger,client,authenticateOwner,readSelection,beforeGenesisCommit=async()=>{}}={}){
+ if(!bindings||!states||!ledger||!client||typeof authenticateOwner!=='function'||typeof readSelection!=='function'||typeof beforeGenesisCommit!=='function')throw Error('vault-authority-dependencies-required');
  const valid=x=>typeof x==='string'&&x.length>0&&x.trim()===x;
  async function initialize(){
   await bindings.createIndex({ownerId:1},{unique:true});
@@ -30,6 +30,7 @@ export function createStudioOwnerVaultAuthority({bindings,states,ledger,client,a
     await states.insertOne({projectId:vaultId,ownerId,revision:1,ownershipRevision:1,revoked:false,state},{session});
     await ledger.insertOne({projectId:vaultId,operationId:'vault-genesis',ownerId,ownershipRevision:1,revision:1,entry,fullOutboxDigest:digest(state.durablePublicationOutbox),stateDigest:digest(state)},{session});
     await bindings.insertOne({ownerId,vaultId,revoked:false},{session});
+    await beforeGenesisCommit({ownerId,vaultId});
     return {ok:true,vaultId,replayed:false};
    },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
   }catch(e){
