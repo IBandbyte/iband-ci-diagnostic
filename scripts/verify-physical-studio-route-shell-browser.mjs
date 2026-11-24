@@ -50,7 +50,8 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  const {chromium}=await import('playwright');
  browser=await chromium.launch({headless:true});
  const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
- await page.goto('http://127.0.0.1:'+port+'/studio');
+ await page.goto('http://127.0.0.1:'+port+'/'+base+'.html');
+ await page.evaluate(()=>{history.pushState({},'', '/studio');dispatchEvent(new PopStateEvent('popstate'))});
  await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_LOCKED_BEFORE_AUTH');
@@ -69,7 +70,7 @@ createRoot(document.getElementById('root')).render(<BrowserRouter><App/></Browse
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_SIGNOUT_UNMOUNTS_WORKSPACE');
  await page.evaluate(()=>globalThis.__physicalRouteAuth('first'));
  await page.getByTestId('verified-studio').waitFor({timeout:15000});
- await page.goto('http://127.0.0.1:'+port+'/');
+ await page.evaluate(()=>{history.pushState({},'', '/');dispatchEvent(new PopStateEvent('popstate'))});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
  assert.deepEqual(errors,[],'browser route shell error: '+errors.join(' | '));
  assert.equal(readFileSync(root+'/src/App.jsx','utf8'),pinned);
