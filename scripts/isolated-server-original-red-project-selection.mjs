@@ -1,7 +1,7 @@
 // Isolated server-owned alternative to the original frontend's denied local
 // active-project mutation. The browser's publication outbox is NEVER a grant.
-export function createServerProjectSelectionAuthority({gate,db,client}={}){
- if(!gate?.authenticateOwner||!db||!client)throw Error('server-selection-dependencies-required');
+export function createServerProjectSelectionAuthority({gate,db,client,beforeSelectionCommit=async()=>{}}={}){
+ if(!gate?.authenticateOwner||!db||!client||typeof beforeSelectionCommit!=='function')throw Error('server-selection-dependencies-required');
  const states=db.collection('provenance_states'),receipts=db.collection('server_project_selection_receipts');
  async function select({token,projectId,operationId,expectedRevision,nextActiveProjectId}={}){
   const ownerId=gate.authenticateOwner(token);
@@ -41,6 +41,7 @@ export function createServerProjectSelectionAuthority({gate,db,client}={}){
     if(nextActiveProjectId!==null&&
        !(current.state.content?.projects||[]).some(p=>p.id===nextActiveProjectId&&p.ownerId===ownerId))return;
     const nextState={...current.state,content:{...current.state.content,activeProjectId:nextActiveProjectId}};
+    await beforeSelectionCommit({projectId,operationId});
     const changed=await states.updateOne({projectId,ownerId,revision:expectedRevision,revoked:false,ownershipRevision:current.ownershipRevision,activeAdoptionGrant:{$exists:false}},
       {$set:{revision:expectedRevision+1,state:nextState}},{session});
     if(changed.modifiedCount!==1)throw Error('project-selection-cas-conflict');

@@ -68,6 +68,10 @@ try{
   assert.equal((await selectionAuthority.select({token:process.env.OWNER_TOKEN,projectId:selectionProjectId,operationId:row.operationId,expectedRevision:row.expectedRevision,nextActiveProjectId:row.nextActiveProjectId})).ok,false);
   assert.equal(await vaultBindings.countDocuments({ownerId:'owner-1',revoked:true}),1);
   assert.equal(await provenance.states.countDocuments({projectId:selectionProjectId,ownerId:'owner-1',revoked:true,ownershipRevision:2}),1);
+  assert.equal((await selectionAuthority.select({token:process.env.INTRUDER_TOKEN,projectId:'isolated-new-write-race-vault',operationId:'race-new-write',expectedRevision:1,nextActiveProjectId:null})).ok,false);
+  assert.equal(await selectionAuthority.receipts.countDocuments({projectId:'isolated-new-write-race-vault'}),0);
+  assert.equal(await provenance.states.countDocuments({projectId:'isolated-new-write-race-vault',revoked:true,revision:1,ownershipRevision:2}),1);
+  console.log('GREEN PHYSICAL_NEW_SELECTION_WRITE_REVOCATION_FRESH_PROCESS_DENIAL');
   console.log('GREEN PHYSICAL_ATOMIC_VAULT_REVOCATION_FRESH_PROCESS_DENIAL');
  }else if(phase==='seed'){
   await Promise.all([projects.deleteMany({}),receipts.deleteMany({}),grants.deleteMany({}),provenance.states.deleteMany({}),provenance.ledger.deleteMany({}),provenance.grants.deleteMany({}),selectionGate.admissions.deleteMany({}),selectionAuthority.receipts.deleteMany({projectId:selectionProjectId})]);
@@ -420,12 +424,42 @@ history.replaceState({},'', '/studio');createRoot(document.getElementById('root'
    finally{await vaultBindings.updateOne({ownerId:'owner-1'},{$set:{revoked:false}});}
    console.log('GREEN PHYSICAL_SERVER_DERIVED_OWNER_VAULT_DISCOVERY_AND_DENIAL');
    if(phase==='recover'){
+    // Independent, valid genesis vault for a second owner. Prove the write
+    // reaches the actual commit seam before revocation wins; no sleeps.
+    assert.equal((await vaultAuthority.revoke({token:process.env.INTRUDER_TOKEN})).ok,false);
+    const raceOwner='intruder',raceVault='isolated-new-write-race-vault',raceToken=process.env.INTRUDER_TOKEN;
+    await provenance.states.insertOne({projectId:raceVault,ownerId:raceOwner,revision:0,ownershipRevision:1,revoked:false,state:{content:{activeProjectId:null,projects:[]},durablePublicationOutbox:[]}});
+    const seed=await provenance.append({token:raceToken,projectId:raceVault,operationId:'race-genesis',expectedRevision:0,content:{activeProjectId:null,projects:[]}});
+    assert.equal(seed.ok,true);
+    assert.equal((await vaultAuthority.provision({token:raceToken,vaultId:raceVault})).ok,true);
+    let arrived,release;
+    const reached=new Promise(r=>arrived=r),resume=new Promise(r=>release=r);
+    let gateCalls=0;
+    const fenced=createServerProjectSelectionAuthority({gate:selectionGate,db,client,beforeSelectionCommit:async({operationId})=>{
+     assert.equal(operationId,'race-new-write');
+     gateCalls++;arrived();await resume;
+    }});
+    const request={token:raceToken,projectId:raceVault,operationId:'race-new-write',expectedRevision:1,nextActiveProjectId:null};
+    const pending=fenced.select(request);
+    let timer;
+    try{
+     await Promise.race([reached,pending.then(()=>{throw Error('new-write-denied-before-commit-seam')}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('new-write-commit-seam-timeout')),10000)})]);
+     assert.equal((await vaultAuthority.revoke({token:raceToken})).ok,true);
+    }finally{clearTimeout(timer);release();}
+    assert.equal((await pending).ok,false);
+    assert.equal(gateCalls,1);
+    assert.equal(await selectionAuthority.receipts.countDocuments({projectId:raceVault}),0);
+    const deniedState=await provenance.states.findOne({projectId:raceVault});
+    assert.equal(deniedState.revision,1);
+    assert.equal(deniedState.ownershipRevision,2);
+    assert.equal(deniedState.revoked,true);
+    assert.equal(await vaultBindings.countDocuments({ownerId:raceOwner,vaultId:raceVault,revoked:true}),1);
+    console.log('GREEN PHYSICAL_NEW_SELECTION_WRITE_PAUSED_AT_COMMIT_REVOKED_NO_RECEIPT');
     const old=await selectionAuthority.receipts.findOne({projectId:selectionProjectId});
     assert.ok(old);
     const replay={token:process.env.OWNER_TOKEN,projectId:selectionProjectId,operationId:old.operationId,expectedRevision:old.expectedRevision,nextActiveProjectId:old.nextActiveProjectId};
     assert.equal((await selectionAuthority.select(replay)).ok,true);
     const count=await selectionAuthority.receipts.countDocuments({projectId:selectionProjectId});
-    assert.equal((await vaultAuthority.revoke({token:process.env.INTRUDER_TOKEN})).ok,false);
     const [revocation]=await Promise.all([vaultAuthority.revoke({token:process.env.OWNER_TOKEN}),selectionAuthority.select(replay)]);
     assert.equal(revocation.ok,true);
     assert.deepEqual(await vaultAuthority.revoke({token:process.env.OWNER_TOKEN}),{ok:true,replayed:true});
