@@ -66,12 +66,12 @@ export function FixtureProvider({children}){
  return <Context.Provider value={state}>{children}</Context.Provider>;
 }`);
  writeFileSync(files[1],`import {createAsyncAuthenticatedStudioSession} from './${basename(moduleDir)}/isolated-application-studio-async-clerk-session-adapter.mjs';import React from 'react';import{createRoot}from'react-dom/client';import{BrowserRouter}from'react-router-dom';import App from './${base}_App.jsx';import MovieMentorCreatorAuthenticationBridge from './components/studio/mentor/MovieMentorCreatorAuthenticationBridge.jsx';import {FixtureProvider} from './${base}_ClerkFixture.jsx';
-let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:false,getToken:null});if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?'token-2':'token-1'});};
+let release=null;let generations=0;globalThis.__physicalRouteDebug={getGenerations:()=>generations};globalThis.__physicalRouteAuth=(kind)=>{if(kind==='signout')return globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:false,getToken:null});if(kind==='delayed'){let resolve;const promise=new Promise(r=>resolve=r);release=resolve;globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:()=>promise});return;}globalThis.__fixtureSetAuth({isLoaded:true,isSignedIn:true,getToken:async()=>kind==='second'?(globalThis.__renewedToken||'token-2'):'token-1'});};
 globalThis.__physicalReleaseDelayed=()=>{release?.('stale-token');release=null};
 let requests=[];let sessions=[];globalThis.__physicalSessions=sessions;globalThis.__physicalRequests=requests;
-export function createPhysicalSession({getAuthToken}){
+export function createPhysicalSession({getAuthToken,onAuthInvalidated}){
  generations++;
- const session=createAsyncAuthenticatedStudioSession({getAuthToken,selectionVaultId:'vault',readLocalBytes:()=>localStorage.getItem('iband.creator-memory'),transport:async({path,token,body})=>{requests.push({path,token,body});return {ok:true,projectId:body.projectId}}});
+ const session=createAsyncAuthenticatedStudioSession({getAuthToken,onAuthInvalidated,selectionVaultId:'vault',readLocalBytes:()=>localStorage.getItem('iband.creator-memory'),transport:async({path,token,body})=>{requests.push({path,token,body});return {ok:true,projectId:body.projectId}}});
  sessions.push(session);
  return session;
 }
@@ -115,11 +115,27 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><FixturePro
  assert.deepEqual(probe,[{path:'/studio/read',token:'token-2',body:{projectId:'film-b'}}]);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_STALE_ASYNC_AUTH_DOES_NOT_REPLACE_VERIFIED_SESSION');
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_REAL_ASYNC_COMPOSITION_TOKEN_BOUND_REQUEST');
+ const renewal=await page.evaluate(async()=>{
+  globalThis.__renewedToken='token-3';
+  const old=globalThis.__retainedStudioServices;
+  try{await old.studioServices.request('/studio/read',{projectId:'film-b'});return false}catch(e){return e.message==='authenticated-session-rotated'}
+ });
+ assert.equal(renewal,true);
+ await page.waitForFunction(()=>globalThis.__physicalSessions.at(-1).getServices()?.recoveryServices().token==='token-3');
+ await page.getByTestId('verified-studio').waitFor({timeout:15000});
+ assert.equal(await page.evaluate(()=>globalThis.__physicalRequests.length),1,'rotation must not replay old request');
+ await page.evaluate(async()=>{
+  const next=globalThis.__physicalSessions.at(-1).getServices();
+  await next.studioServices.request('/studio/read',{projectId:'film-b'});
+  globalThis.__retainedStudioServices=next;
+ });
+ assert.deepEqual(await page.evaluate(()=>globalThis.__physicalRequests.at(-1)),{path:'/studio/read',token:'token-3',body:{projectId:'film-b'}});
+ console.log('GREEN PHYSICAL_STUDIO_ROUTE_TOKEN_RENEWAL_RECOMPOSES_WITHOUT_REPLAY');
  await page.evaluate(()=>globalThis.__physicalRouteAuth('signout'));
  await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
  assert.equal(await page.getByTestId('verified-studio').count(),0);
  assert.equal(await page.evaluate(async()=>{
-  try{await globalThis.__retainedStudioServices.studioServices.request('/studio/read',{projectId:'film-b'});return false}catch{return globalThis.__physicalRequests.length===1&&globalThis.__physicalSessions.at(-1).getServices()===null}
+  try{await globalThis.__retainedStudioServices.studioServices.request('/studio/read',{projectId:'film-b'});return false}catch{return globalThis.__physicalRequests.length===2&&globalThis.__physicalSessions.at(-1).getServices()===null}
  }),true);
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_SIGNOUT_UNMOUNTS_WORKSPACE');
  console.log('GREEN PHYSICAL_STUDIO_ROUTE_SIGNOUT_REVOKES_RETAINED_COMPOSED_SERVICES');

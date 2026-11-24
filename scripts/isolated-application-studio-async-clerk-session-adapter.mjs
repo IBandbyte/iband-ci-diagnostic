@@ -4,12 +4,12 @@
 import {createApplicationOwnedStudioServices} from './isolated-application-owned-studio-service-composition.mjs';
 export function createAsyncAuthenticatedStudioSession({
   getAuthToken,transport,selectionVaultId,readLocalBytes,
-  onSelection=()=>{},onReadOnly=()=>{},onEditable=()=>{},onView=()=>{}
+  onSelection=()=>{},onReadOnly=()=>{},onEditable=()=>{},onView=()=>{},onAuthInvalidated=()=>{}
 }={}){
  if(typeof getAuthToken!=='function'||typeof transport!=='function'||
     typeof selectionVaultId!=='string'||!selectionVaultId.trim()||
     typeof readLocalBytes!=='function'||
-    [onSelection,onReadOnly,onEditable,onView].some(x=>typeof x!=='function'))
+    [onSelection,onReadOnly,onEditable,onView,onAuthInvalidated].some(x=>typeof x!=='function'))
   throw Error('async-authenticated-studio-dependencies-required');
  let generation=0,session=null;
  const valid=t=>typeof t==='string'&&t.trim()===t&&t.length>0;
@@ -35,11 +35,11 @@ export function createAsyncAuthenticatedStudioSession({
     let latest;
     try{latest=await getAuthToken()}catch{
      assertCurrent();
-     invalidate();throw Error('authenticated-token-unavailable');
+     invalidate();onAuthInvalidated('authenticated-token-unavailable');throw Error('authenticated-token-unavailable');
     }
     assertCurrent();
     if(!valid(latest)||latest!==token){
-     invalidate();throw Error('authenticated-session-rotated');
+     invalidate();onAuthInvalidated('authenticated-session-rotated');throw Error('authenticated-session-rotated');
     }
    };
    await checkToken();

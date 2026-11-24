@@ -22,7 +22,12 @@ export function createStudioAuthorityRouteLifecycle({
    try{state=getAuthState()}catch{onDenied('auth-state-unavailable');return;}
    if(!eligible(state)){onDenied('creator-authentication-required');return;}
    let candidate;
-   try{candidate=createSession({getAuthToken:state.getToken});}
+   try{candidate=createSession({getAuthToken:state.getToken,onAuthInvalidated:reason=>{
+     if(!active||own!==epoch||session!==candidate)return;
+     clear();onDenied(reason);
+     const retryEpoch=epoch;
+     if(reason==='authenticated-session-rotated')queueMicrotask(()=>{if(active&&epoch===retryEpoch)void refresh();});
+   }});}
    catch{onDenied('studio-composition-unavailable');return;}
    if(!candidate||typeof candidate.open!=='function'||
       typeof candidate.invalidate!=='function'){
