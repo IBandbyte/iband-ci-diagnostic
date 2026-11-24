@@ -44,4 +44,46 @@ for(const [killPhase,retryPhase,seam] of [['genesis-kill','genesis-retry','befor
  process.stdout.write(retry.stdout||'');process.stderr.write(retry.stderr||'');
  assert.equal(retry.status,0,'vault interruption recovery failed '+retryPhase);
 }
+// Separate HTTP-origin interruption court using actual Express router and loopback TCP.
+for(const [phase,seam,owner] of [['http-genesis-pre','before-commit','http-pre-owner'],['http-genesis-post','after-commit','http-post-owner']]){
+ const token=jwt(owner);
+ const start=(mode,extra={})=>fork('./verify-physical-async-authenticated-studio-react-worker.mjs',[mode],{env:{...env,PHYSICAL_STUDIO_ROUTE:'1',HTTP_VAULT_OWNER:owner,...extra},stdio:['ignore','inherit','inherit','ipc']});
+ const next=(child,predicate,ms=20000)=>new Promise((resolve,reject)=>{
+  const cleanup=()=>{clearTimeout(timer);child.off('message',message);child.off('exit',exit);child.off('error',error)};
+  const message=m=>{if(predicate(m)){cleanup();resolve(m)}};
+  const exit=(c,s)=>{cleanup();reject(Error('HTTP vault worker exited '+c+' '+s))};
+  const error=e=>{cleanup();reject(e)};
+  const timer=setTimeout(()=>{cleanup();reject(Error('HTTP vault barrier timeout'))},ms);
+  child.on('message',message);child.once('exit',exit);child.once('error',error);
+ });
+ const request=(port,path,body={},credential=token)=>fetch('http://127.0.0.1:'+port+'/studio/'+path,{method:'POST',headers:{authorization:'Bearer '+credential,'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(115000)});
+ const child=start(phase);let proof;
+ try{
+  const {port}=await next(child,m=>Number.isInteger(m?.port));
+  assert.equal((await request(port,'selection-vault-create',{},'invalid')).status,401);
+  assert.equal((await request(port,'selection-vault-create',{ownerId:'foreign'})).status,400);
+  const barrier=next(child,m=>m?.seam===seam);
+  const pending=request(port,'selection-vault-create').then(()=>false,()=>true);
+  proof=await barrier;
+  assert.ok(proof.vaultId);
+  const killed=new Promise(resolve=>child.once('exit',(code,signal)=>resolve({code,signal})));
+  child.kill('SIGKILL');
+  assert.deepEqual(await killed,{code:null,signal:'SIGKILL'});
+  assert.equal(await pending,true,'HTTP acknowledgement must be lost');
+ }finally{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');}
+ const restarted=start('http-genesis-retry',{INTERRUPTED_VAULT_ID:proof.vaultId,HTTP_VAULT_COMMITTED:seam==='after-commit'?'1':'0'});
+ try{
+  const {port}=await next(restarted,m=>Number.isInteger(m?.port));
+  const response=await request(port,'selection-vault-create');
+  assert.equal(response.status,seam==='after-commit'?200:201);
+  const result=await response.json();assert.equal(result.ok,true);
+  assert.equal(result.replayed,seam==='after-commit');
+  if(seam==='after-commit')assert.equal(result.vaultId,proof.vaultId);else assert.notEqual(result.vaultId,proof.vaultId);
+  const read=await request(port,'selection-vault');
+  assert.equal(read.status,200);assert.deepEqual(await read.json(),{ok:true,vaultId:result.vaultId});
+  const stopped=new Promise(resolve=>restarted.once('exit',(code,signal)=>resolve({code,signal})));
+  restarted.send('stop');assert.deepEqual(await stopped,{code:0,signal:null});
+  console.log(seam==='before-commit'?'GREEN PHYSICAL_HTTP_VAULT_PRECOMMIT_SIGKILL_RETRY':'GREEN PHYSICAL_HTTP_VAULT_POSTCOMMIT_ACK_LOSS_EXACT_REPLAY');
+ }finally{if(restarted.exitCode===null&&restarted.signalCode===null)restarted.kill('SIGKILL');}
+}
 console.log('HELD LIVE_CLERK_AND_ORIGINAL_FRONTEND_RED_AND_APPLICATION_MAIN_ADOPTION');

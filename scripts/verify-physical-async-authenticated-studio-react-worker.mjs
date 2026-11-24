@@ -3,6 +3,8 @@
 import assert from 'node:assert/strict';
 import {MongoClient} from 'mongodb';
 import {createServer} from 'node:http';
+import express from 'express';
+import {createStudioVaultExpressRouter} from './isolated-studio-vault-express-router.mjs';
 import {createPublicKey,verify} from 'node:crypto';
 import {readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {spawn} from 'node:child_process';
@@ -24,7 +26,7 @@ const projects=db.collection('projects'),receipts=db.collection('receipts'),gran
 const key=createPublicKey(process.env.PUBLIC_KEY_PEM);
 const base='__async_authenticated_studio_react';
 const files=['../frontend/'+base+'.html','../frontend/'+base+'_entry.jsx','../frontend/'+base+'_vite.config.mjs','../frontend/src/components/studio/'+base+'.jsx','../frontend/'+base+'_runtime.mjs'];
-const phase=process.argv[2];assert.ok(['seed','save','recover','revoked-restart','genesis-kill','genesis-retry','genesis-ack-kill','genesis-ack-retry'].includes(phase));
+const phase=process.argv[2];assert.ok(['seed','save','recover','revoked-restart','genesis-kill','genesis-retry','genesis-ack-kill','genesis-ack-retry','http-genesis-pre','http-genesis-post','http-genesis-retry'].includes(phase));
 const selectionProjectId='physical-studio-selection-vault';
 const vaultBindings=db.collection('studio_owner_vault_bindings');
 const routeMode=process.env.PHYSICAL_STUDIO_ROUTE==='1';
@@ -59,7 +61,35 @@ const authenticate=header=>{
 const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
 const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>32768)throw Error('too-large')}return JSON.parse(s)};
 try{
- if(phase==='genesis-kill'||phase==='genesis-ack-kill'){
+ if(phase.startsWith('http-genesis-')){
+  const pre=phase==='http-genesis-pre',post=phase==='http-genesis-post',retry=phase==='http-genesis-retry';
+  const ownerId=process.env.HTTP_VAULT_OWNER;
+  const lost=process.env.INTERRUPTED_VAULT_ID;
+  const expectedExisting=retry&&process.env.HTTP_VAULT_COMMITTED==='1';
+  for(const collection of [vaultBindings,provenance.states,provenance.ledger])assert.equal(await collection.countDocuments({ownerId}),expectedExisting?1:0);
+  const candidate=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:t=>authenticate('Bearer '+t),readSelection:selectionAuthority.read,beforeGenesisCommit:async proof=>{
+   if(pre){assert.equal(proof.ownerId,ownerId);process.send({seam:'before-commit',vaultId:proof.vaultId});await new Promise(()=>{});}
+  }});
+  const app=express();app.use(express.json({limit:'16kb'}));
+  app.use('/studio',createStudioVaultExpressRouter({authority:candidate,authenticateOwner:t=>authenticate('Bearer '+t),beforeReply:async({method,owner,result})=>{
+   assert.equal(owner,ownerId);
+   if(method==='create'&&post){assert.equal(result.replayed,false);process.send({seam:'after-commit',vaultId:result.vaultId});await new Promise(()=>{});}
+   if(method==='create'&&retry){
+    assert.equal(result.replayed,expectedExisting);
+    if(expectedExisting)assert.equal(result.vaultId,lost);else assert.notEqual(result.vaultId,lost);
+    for(const collection of [vaultBindings,provenance.states,provenance.ledger])assert.equal(await collection.countDocuments({ownerId}),1);
+    if(!expectedExisting){
+     assert.equal(await provenance.states.countDocuments({projectId:lost}),0);
+     assert.equal(await provenance.ledger.countDocuments({projectId:lost}),0);
+     assert.equal(await vaultBindings.countDocuments({vaultId:lost}),0);
+    }
+   }
+  }}));
+  server=app.listen(0,'127.0.0.1');
+  await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
+  process.send({port:server.address().port});
+  await new Promise(resolve=>process.once('message',m=>{assert.equal(m,'stop');resolve()}));
+ }else if(phase==='genesis-kill'||phase==='genesis-ack-kill'){
   const token=phase==='genesis-kill'?process.env.KILL_OWNER_TOKEN:process.env.ACK_KILL_OWNER_TOKEN;
   const ownerId=phase==='genesis-kill'?'kill-owner':'ack-kill-owner';
   assert.equal(await vaultBindings.countDocuments({ownerId}),0);
