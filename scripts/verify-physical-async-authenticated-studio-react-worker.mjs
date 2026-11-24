@@ -24,7 +24,7 @@ const projects=db.collection('projects'),receipts=db.collection('receipts'),gran
 const key=createPublicKey(process.env.PUBLIC_KEY_PEM);
 const base='__async_authenticated_studio_react';
 const files=['../frontend/'+base+'.html','../frontend/'+base+'_entry.jsx','../frontend/'+base+'_vite.config.mjs','../frontend/src/components/studio/'+base+'.jsx','../frontend/'+base+'_runtime.mjs'];
-const phase=process.argv[2];assert.ok(['seed','save','recover','revoked-restart'].includes(phase));
+const phase=process.argv[2];assert.ok(['seed','save','recover','revoked-restart','genesis-kill','genesis-retry','genesis-ack-kill','genesis-ack-retry'].includes(phase));
 const selectionProjectId='physical-studio-selection-vault';
 const vaultBindings=db.collection('studio_owner_vault_bindings');
 const routeMode=process.env.PHYSICAL_STUDIO_ROUTE==='1';
@@ -59,7 +59,41 @@ const authenticate=header=>{
 const vaultAuthority=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:token=>authenticate('Bearer '+token),readSelection:selectionAuthority.read});
 const readJson=async req=>{let s='';for await(const c of req){s+=c;if(s.length>32768)throw Error('too-large')}return JSON.parse(s)};
 try{
- if(phase==='revoked-restart'){
+ if(phase==='genesis-kill'||phase==='genesis-ack-kill'){
+  const token=phase==='genesis-kill'?process.env.KILL_OWNER_TOKEN:process.env.ACK_KILL_OWNER_TOKEN;
+  const ownerId=phase==='genesis-kill'?'kill-owner':'ack-kill-owner';
+  assert.equal(await vaultBindings.countDocuments({ownerId}),0);
+  const candidate=createStudioOwnerVaultAuthority({bindings:vaultBindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:t=>authenticate('Bearer '+t),readSelection:selectionAuthority.read,beforeGenesisCommit:async proof=>{
+   assert.equal(proof.ownerId,ownerId);
+   if(phase==='genesis-kill'){
+    process.send({seam:'before-commit',vaultId:proof.vaultId});
+    await new Promise(()=>{});
+   }
+  }});
+  const result=await candidate.create({token});
+  assert.equal(phase,'genesis-ack-kill');
+  assert.equal(result.ok,true);assert.equal(result.replayed,false);
+  process.send({seam:'after-commit',vaultId:result.vaultId});
+  await new Promise(()=>{});
+ }else if(phase==='genesis-retry'||phase==='genesis-ack-retry'){
+  const pre=phase==='genesis-retry',ownerId=pre?'kill-owner':'ack-kill-owner';
+  const token=pre?process.env.KILL_OWNER_TOKEN:process.env.ACK_KILL_OWNER_TOKEN;
+  const lostVault=process.env.INTERRUPTED_VAULT_ID;
+  assert.ok(lostVault);
+  for(const collection of [vaultBindings,provenance.states,provenance.ledger])assert.equal(await collection.countDocuments({ownerId}),pre?0:1);
+  const result=await vaultAuthority.create({token});
+  assert.equal(result.ok,true);assert.equal(result.replayed,!pre);
+  if(pre)assert.notEqual(result.vaultId,lostVault);else assert.equal(result.vaultId,lostVault);
+  assert.deepEqual(await vaultAuthority.resolve({token}),{ok:true,vaultId:result.vaultId});
+  assert.deepEqual(await selectionAuthority.read({token,projectId:result.vaultId}),{ok:true,projectId:result.vaultId,revision:1,activeProjectId:null});
+  for(const collection of [vaultBindings,provenance.states,provenance.ledger])assert.equal(await collection.countDocuments({ownerId}),1);
+  if(pre){
+   assert.equal(await provenance.states.countDocuments({projectId:lostVault}),0);
+   assert.equal(await provenance.ledger.countDocuments({projectId:lostVault}),0);
+   assert.equal(await vaultBindings.countDocuments({vaultId:lostVault}),0);
+  }
+  console.log(pre?'GREEN PHYSICAL_VAULT_GENESIS_SIGKILL_BEFORE_COMMIT_RETRY':'GREEN PHYSICAL_VAULT_GENESIS_SIGKILL_AFTER_COMMIT_EXACT_REPLAY');
+ }else if(phase==='revoked-restart'){
   assert.equal((await vaultAuthority.resolve({token:process.env.OWNER_TOKEN})).ok,false);
   assert.equal((await vaultAuthority.provision({token:process.env.RENEWED_OWNER_TOKEN,vaultId:selectionProjectId})).ok,false);
   assert.equal((await selectionAuthority.read({token:process.env.RENEWED_OWNER_TOKEN,projectId:selectionProjectId})).ok,false);
