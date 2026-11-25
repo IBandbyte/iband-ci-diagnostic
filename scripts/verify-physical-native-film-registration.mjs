@@ -798,6 +798,61 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
      assert.equal(providerRequests.length,beforeCalls+5);
      assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,beforeBalance.consumedUnits+1);
      console.log('GREEN PHYSICAL_GENUINE_BROWSER_CANONICAL_EXECUTION_SETTLEMENT_AND_RELOAD');
+     // Separate physical strict-mode bypass court, after all prior positive controls.
+     await canonicalPage.unroute('**/native-authority/**');
+     await canonicalPage.getByRole('button',{name:'Request native writing'}).click();
+     await canonicalPage.getByText('Server writer admitted',{exact:true}).waitFor();
+     const strictState=await gate.states.findOne({projectId:routeFilm,ownerId,revoked:false});
+     const strictWriter=await gate.admissions.findOne({projectId:routeFilm,ownerId,fence:strictState.activeWriterFence,status:'admitted'});
+     assert.ok(strictWriter);
+     const bypassTurn=randomUUID(),bypassText='Strict composer bypass attempt';
+     const bypass={selectionVaultId:vaultId,projectId:routeFilm,operationId:strictWriter.operationId+':'+bypassTurn,creatorTurnId:bypassTurn,expectedRevision:strictState.revision,fence:strictWriter.fence,creatorMessage:{id:bypassTurn,role:'creator',text:bypassText},mentorMessage:{id:randomUUID(),role:'mentor',text:'forged legacy response',metadata:{backendMetadata:{creatorTurnId:bypassTurn}}}};
+     const bypassBefore=await projects.findOne({_id:routeFilm}),bypassReceipts=await receipts.countDocuments({projectId:routeFilm}),bypassCalls=providerRequests.length,bypassBalance=await entitlements.findOne({principalId:ownerId});
+     const bypassResult=await canonicalPage.evaluate(async({body,token})=>{const response=await fetch('/native-authority/studio/native-conversation-settle',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return response.json()},{body:bypass,token:owner});
+     assert.equal(bypassResult.ok,false,'strict writer must deny legacy settlement even before any canonical execution binding exists');
+     assert.deepEqual(await projects.findOne({_id:routeFilm}),bypassBefore);
+     assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts);
+     assert.equal(providerRequests.length,bypassCalls);
+     assert.deepEqual(await entitlements.findOne({principalId:ownerId}),bypassBalance);
+     assert.equal(await transcript.getByText(bypassText,{exact:true}).count(),0);
+     console.log('GREEN PHYSICAL_STRICT_BROWSER_LEGACY_SETTLEMENT_BYPASS_DENIAL');
+     // A fully destroyed browser realm must recover a completed but unpublished turn.
+     const interruptionMessage='Canonical execution completed before browser interruption '+randomUUID();
+     await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+     let notifyInterrupted,interruptedIntent;
+     const interrupted=new Promise(resolve=>{notifyInterrupted=resolve});
+     await canonicalPage.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      interruptedIntent=route.request().postDataJSON();
+      const response=await route.fetch();assert.equal(response.ok(),true);
+      const body=await response.json();assert.equal(body.ok,true,JSON.stringify(body));
+      notifyInterrupted();await new Promise(resolve=>canonicalPage.once('close',resolve));
+     });
+     await composer.fill(interruptionMessage);
+     await region.getByRole('button',{name:'Send',exact:true}).click();
+     await Promise.race([interrupted,new Promise((_,reject)=>setTimeout(()=>reject(Error('interruption court did not reach canonical execution completion')),15000))]);
+     assert.deepEqual(await projects.findOne({_id:routeFilm}),bypassBefore);
+     assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts);
+     assert.equal(providerRequests.length,bypassCalls+5);
+     assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+1);
+     assert.equal(await transcript.getByText(interruptionMessage,{exact:true}).count(),0);
+     await canonicalPage.close();
+     const restarted=await browser.newPage();
+     try{
+      await restarted.goto(url);
+      await restarted.getByRole('status',{name:'Studio authority locked'}).waitFor();
+      await restarted.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+      const restoredTranscript=restarted.getByLabel('Committed conversation transcript');
+      await restoredTranscript.getByText(interruptionMessage,{exact:true}).waitFor({timeout:15000});
+      assert.equal(await restoredTranscript.getByText(interruptionMessage,{exact:true}).count(),1);
+      const recoveredProject=await projects.findOne({_id:routeFilm});
+      assert.equal(recoveredProject.revision,bypassBefore.revision+1);
+      assert.equal(recoveredProject.state.conversationMessages.at(-2).id,interruptedIntent.creatorTurnId);
+      assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+1);
+      assert.equal(providerRequests.length,bypassCalls+5);
+      assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+1);
+      console.log('GREEN PHYSICAL_COMPLETE_BROWSER_INTERRUPTION_CANONICAL_UNPUBLISHED_TURN_RECOVERY');
+     }finally{await restarted.close();}
+
     }finally{await canonicalPage.close();}
 
    }finally{if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
