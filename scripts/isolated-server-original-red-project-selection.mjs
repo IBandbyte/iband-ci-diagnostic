@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 // Isolated server-owned alternative to the original frontend's denied local
 // active-project mutation. The browser's publication outbox is NEVER a grant.
 export function createServerProjectSelectionAuthority({gate,db,client,beforeSelectionCommit=async()=>{}}={}){
@@ -40,7 +41,15 @@ export function createServerProjectSelectionAuthority({gate,db,client,beforeSele
     // A project selection cannot implicitly create an unowned new project.
     if(nextActiveProjectId!==null&&
        !(current.state.content?.projects||[]).some(p=>p.id===nextActiveProjectId&&p.ownerId===ownerId))return;
-    const nextState={...current.state,content:{...current.state.content,activeProjectId:nextActiveProjectId}};
+    let nextState={...current.state,content:{...current.state.content,activeProjectId:nextActiveProjectId}};
+    // Native-registered vaults must retain a complete publication chain across repeated switches.
+    const nativeChain=records.some(r=>typeof r.operationId==='string'&&r.operationId.startsWith('register:movie-project-'));
+    if(nativeChain){
+     const revision=expectedRevision+1;
+     const entry={id:randomUUID(),status:'pending',committedStateVersion:records.length+1,snapshotDigest:digest({content:nextState.content,revision})};
+     nextState={...nextState,durablePublicationOutbox:[...current.state.durablePublicationOutbox,entry]};
+     await gate.ledger.insertOne({projectId,ownerId,ownershipRevision:current.ownershipRevision,revision,operationId:'selection:'+operationId,entry,stateDigest:digest(nextState),fullOutboxDigest:digest(nextState.durablePublicationOutbox)},{session});
+    }
     await beforeSelectionCommit({projectId,operationId});
     const changed=await states.updateOne({projectId,ownerId,revision:expectedRevision,revoked:false,ownershipRevision:current.ownershipRevision,activeAdoptionGrant:{$exists:false}},
       {$set:{revision:expectedRevision+1,state:nextState}},{session});

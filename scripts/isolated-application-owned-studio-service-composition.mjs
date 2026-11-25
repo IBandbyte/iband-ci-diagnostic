@@ -61,6 +61,32 @@ export function createApplicationOwnedStudioServices({
  });
  // Pending turn lives with the application service instance, not on window.
  let pending=null;
+ let creationEpoch=0,creating=false;
+ // The caller retains the canonical identity across ambiguous HTTP outcomes.
+ async function createNativeFilm({projectId,operationId}={}){
+  if(creating||typeof projectId!=='string'||!/^movie-project-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId)||typeof operationId!=='string'||!operationId.trim())return {ok:false,reason:'native-creation-input-denied'};
+  creating=true;const epoch=++creationEpoch;
+  try{
+   const token=snapshotToken(),bytes=readLocalBytes();
+   if(typeof bytes!=='string')return {ok:false,reason:'local-memory-unavailable'};
+   const current=()=>epoch===creationEpoch&&readLocalBytes()===bytes&&snapshotToken()===token;
+   applicationSecondFilm.invalidate();continuity.invalidate();pending=null;
+   const identity={domain:'iband.movie-mentor.project',schema:1,issuance:'secure-web-crypto',legacy:false};
+   const created=await execute('/api/movie-mentor/projects',{token,projectId,identity});
+   if(!current()||created?.success!==true||created.projectId!==projectId||created.ownership?.projectId!==projectId||created.ownership?.status!=='active')return {ok:false,reason:'native-ownership-unverified'};
+   const registered=await execute('/studio/native-film-register',{token,projectId});
+   if(!current()||registered?.ok!==true||registered.projectId!==projectId)return {ok:false,reason:'native-registration-unverified'};
+   const loaded=await selection.load({token,projectId:selectionVaultId});
+   if(!current()||!loaded.ok)return {ok:false,reason:'selection-unverified'};
+   if(loaded.selection.activeProjectId!==projectId){
+    const changed=await selection.change({token,projectId:selectionVaultId,operationId,nextActiveProjectId:projectId});
+    if(!current()||!changed.ok)return {ok:false,reason:'native-selection-unverified'};
+   }
+   const recovered=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
+   if(!current()||!recovered.ok||recovered.view?.projectId!==projectId||recovered.view?.writable!==false)return {ok:false,reason:'native-recovery-unverified'};
+   return {ok:true,projectId,view:recovered.view};
+  }catch{return {ok:false,reason:'native-creation-outcome-unverified'}}finally{creating=false}
+ }
  const studioServices={
   editable,selection,
   request:(path,body)=>execute(path,body),
@@ -71,10 +97,10 @@ export function createApplicationOwnedStudioServices({
   continuity,token:snapshotToken(),selectionVaultId
  });
  const invalidate=()=>{
-  pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
+  creationEpoch++;pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
  };
  return Object.freeze({
-  studioServices,applicationSecondFilm,recoveryServices,
+  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,
   getSelection:()=>selection.getSnapshot(),getContinuity:()=>continuity.getSnapshot(),
   invalidate
  });
