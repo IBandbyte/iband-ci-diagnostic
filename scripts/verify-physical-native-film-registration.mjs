@@ -356,7 +356,16 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    await routeDisplay.getByText('creator: Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
    assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
    assert.equal((await projects.findOne({_id:routeFilm})).state.conversationMessages.length,2);
-   await routePage.reload();await routePage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   // The diagnostic HTML is the entry document; history.replaceState sets
+   // /studio for BrowserRouter. A raw reload of /studio serves Vite's default
+   // index.html instead of this disposable entry. Revisit the same entry
+   // document to create a fresh JS realm and mount the identical /studio route.
+   const routeReloadErrors=[];routePage.on('pageerror',e=>routeReloadErrors.push(String(e)));
+   await routePage.goto(url,{waitUntil:'domcontentloaded'});
+   try{await routePage.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000})}
+   catch(e){throw Error('native route remount failed: '+routePage.url()+' errors='+JSON.stringify(routeReloadErrors)+' body='+await routePage.locator('body').innerText(),{cause:e})}
+   assert.equal(new URL(routePage.url()).pathname,'/studio');
+   assert.equal(await routePage.getByLabel('Verified native movie').count(),0);
    await routePage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
    await routePage.getByLabel('Restored conversation').getByText('creator: Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
    assert.equal(await routePage.getByLabel('Verified native movie').textContent(),routeFilm);
