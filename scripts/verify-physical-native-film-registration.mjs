@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
 import express from 'express';
+import {createPhysicalProvenanceFencedSceneSettlement} from './isolated-physical-provenance-fenced-scene-settlement.mjs';
+import {spawnSync} from 'node:child_process';
 import {createApplicationStudioSessionFactory} from './isolated-application-studio-session-factory.mjs';
 import mongoose from 'mongoose';
 import {MongoClient} from 'mongodb';
@@ -41,11 +43,15 @@ try{
  const vaults=createStudioOwnerVaultAuthority({bindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:authenticate,readSelection:selection.read});
  await vaults.initialize();await selection.receipts.createIndex({projectId:1,operationId:1},{unique:true});
  const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate});
+ const receipts=db.collection('native_conversation_receipts');
+ await receipts.createIndex({projectId:1,operationId:1},{unique:true});await receipts.createIndex({projectId:1,creatorTurnId:1},{unique:true});
+ const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
  const app=express();app.use(express.json());app.use('/api/movie-mentor',createMovieMentorProjectsRouter({nativeProjectCreationAuthority}));
  app.post('/studio/native-film-register',async(req,res)=>res.json(await registration.register({token:req.get('authorization')?.replace(/^Bearer /,''),projectId:req.body.projectId})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-change',async(req,res)=>res.json(await selection.select({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/read',async(req,res)=>{const sub=authenticate(req.get('authorization')?.replace(/^Bearer /,''));const p=sub&&await projects.findOne({_id:req.body.projectId,ownerId:sub});return res.json(p?{ok:true,projectId:p._id,revision:p.revision,state:p.state}:{ok:false})});
+ app.post('/studio/native-conversation-settle',async(req,res)=>res.json(await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
  const identity={domain:'iband.movie-mentor.project',schema:1,issuance:'secure-web-crypto',legacy:false};
  const create=(projectId,token=owner)=>fetch('http://127.0.0.1:'+server.address().port+'/api/movie-mentor/projects',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({projectId,identity})});
@@ -94,5 +100,28 @@ try{
  assert.equal(switchBack.ok,true,JSON.stringify(switchBack));
  assert.deepEqual(await provenance.states.findOne({projectId:filmA}),before);
  console.log('GREEN PHYSICAL_AUTHENTICATED_APPLICATION_SESSION_NATIVE_CREATION_REPLAY_AND_SWITCH_BACK');
- console.log('HELD INDEPENDENT_PROCESS_CONVERSATION_SETTLEMENT_AND_APPLICATION_ROUTE_ADOPTION');
+ const inputs=[];
+ for(const [id,label] of [[filmB,'Second film only'],[filmC,'Third film only']]){
+  const selected=await selection.read({token:owner,projectId:vaultId});
+  assert.equal((await selection.select({token:owner,projectId:vaultId,expectedRevision:selected.revision,operationId:'conversation-select-'+id,nextActiveProjectId:id})).ok,true);
+  const g=await provenance.issue({token:owner,projectId:id,revision:1});assert.ok(g?.grantId);
+  const admissionId='conversation-admit-'+id;
+  const admission=await gate.admit({token:owner,projectId:id,grantId:g.grantId,operationId:admissionId,revision:1});assert.equal(admission.acquired,true);
+  const body={projectId:id,selectionVaultId:vaultId,operationId:admissionId+':turn',creatorTurnId:'same-turn-id',expectedRevision:1,fence:admission.fence,creatorMessage:{id:'same-turn-id',role:'creator',text:label},mentorMessage:{id:'same-mentor-id',role:'mentor',text:'Reply to '+label,metadata:{backendMetadata:{creatorTurnId:'same-turn-id'}}}};
+  assert.equal((await transport({path:'/studio/native-conversation-settle',token:foreign,body})).ok,false);
+  const result=await reopened.services.studioServices.request('/studio/native-conversation-settle',body);assert.equal(result.ok,true,JSON.stringify(result));
+  const replay=await reopened.services.studioServices.request('/studio/native-conversation-settle',body);assert.equal(replay.replay,true);assert.equal(replay.serverCommitId,result.serverCommitId);
+  assert.equal((await reopened.services.studioServices.request('/studio/native-conversation-settle',{...body,mentorMessage:{...body.mentorMessage,text:'tampered'}})).ok,false);
+  assert.equal(await receipts.countDocuments({projectId:id}),1);
+  assert.deepEqual((await projects.findOne({_id:id})).state.conversationMessages,[body.creatorMessage,body.mentorMessage]);
+  inputs.push(body);
+ }
+ assert.equal((await reopened.services.studioServices.request('/studio/native-conversation-settle',inputs[0])).ok,false);
+ assert.deepEqual(await provenance.states.findOne({projectId:filmA}),before);
+ // Independent OS process reads the durable Mongo records, not the parent heap.
+ const child=spawnSync(process.execPath,['--input-type=module','-e',`import assert from 'node:assert/strict';import {MongoClient} from 'mongodb';const c=new MongoClient(process.env.MONGO_URI);await c.connect();try{const d=c.db('isolated_native_film_registration');for(const x of JSON.parse(process.env.EXPECTED_CONVERSATIONS)){const p=await d.collection('projects').findOne({_id:x.projectId});const s=await d.collection('provenance_states').findOne({projectId:x.projectId});assert.equal(p.revision,2);assert.deepEqual(p.state.conversationMessages,[x.creatorMessage,x.mentorMessage]);assert.deepEqual(s.state.content,p.state);assert.equal(await d.collection('native_conversation_receipts').countDocuments({projectId:x.projectId}),1)}}finally{await c.close()}`],{env:{...process.env,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)},encoding:'utf8',timeout:30000});
+ assert.equal(child.status,0,child.stderr||child.error?.message);
+ console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_ATOMIC_CONVERSATION_SETTLEMENT_AND_REPLAY');
+ console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_FRESH_PROCESS_DURABLE_READBACK');
+ console.log('HELD AUTHENTICATED_RESTART_CONVERSATION_PROJECTION_AND_APPLICATION_ROUTE_ADOPTION');
 }finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}
