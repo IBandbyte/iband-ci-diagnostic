@@ -400,6 +400,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    coreExact('disabled={effectiveThinking || isGenerating} style={styles.textarea}','disabled={nativeReadOnly || effectiveThinking || isGenerating} style={styles.textarea}');
    coreExact('disabled={!draft.trim() || effectiveThinking || isGenerating} style={styles.sendButton}','disabled={nativeReadOnly || !draft.trim() || effectiveThinking || isGenerating} style={styles.sendButton}');
    coreExact('{renderComposerExtra?.()}{renderBelowConversation?.()}','{nativeFailure&&<p role="alert">Conversation not confirmed. Recover the saved film before retrying.</p>}{renderComposerExtra?.()}{renderBelowConversation?.()}');
+   coreExact('<div style={styles.viewport}>','<div style={styles.viewport} aria-label="Committed conversation transcript">');
    writeFileSync(corePath,core);
    // Preserve the restricted candidate; add a cockpit mode to a separate copy.
    const cockpitPath=root+'src/components/studio/'+base+'_Cockpit.jsx';
@@ -439,6 +440,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    await cockpitPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
    const cockpitRegion=cockpitPage.getByLabel('Native cockpit conversation');
    await cockpitRegion.getByText('Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
+   const transcript=cockpitRegion.getByLabel('Committed conversation transcript');
    const composer=cockpitRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...");
    assert.equal(await composer.isDisabled(),true);
    const cockpitBytes=await cockpitPage.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()));
@@ -452,20 +454,27 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    await cockpitRegion.getByRole('button',{name:'Send',exact:true}).click();
    try{
      await Promise.race([held,new Promise((_,reject)=>setTimeout(()=>reject(Error('native composer did not send settlement')),10000))]);
-     assert.equal(await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).count(),0);
+     // The draft itself is intentionally retained in the disabled textarea.
+     // Assert against the actual rendered conversation viewport, not the
+     // entire region (Playwright can match textarea text content).
+     assert.equal(await composer.inputValue(),'Genuine pinned composer native settlement');
+     assert.equal(await transcript.getByText('Genuine pinned composer native settlement',{exact:true}).count(),0);
+     assert.equal((await projects.findOne({_id:routeFilm})).state.conversationMessages.length,2);
      assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
      assert.equal(await composer.isDisabled(),true);
    }finally{release();}
-   await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
+   await transcript.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
    assert.equal(await receipts.countDocuments({projectId:routeFilm}),2);
    assert.equal((await projects.findOne({_id:routeFilm})).state.conversationMessages.length,4);
    assert.equal(await composer.isDisabled(),true);
+   await cockpitPage.waitForFunction(()=>document.querySelector('[aria-label="Native cockpit conversation"] textarea')?.value==='');
+   assert.equal(await transcript.getByText('Genuine pinned composer native settlement',{exact:true}).count(),1);
    assert.equal(await cockpitPage.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort())),cockpitBytes);
    await cockpitPage.goto(url,{waitUntil:'domcontentloaded'});
    await cockpitPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
    await cockpitPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
-   await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
-   assert.equal(await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).count(),1);
+   await transcript.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
+   assert.equal(await transcript.getByText('Genuine pinned composer native settlement',{exact:true}).count(),1);
    assert.equal(await receipts.countDocuments({projectId:routeFilm}),2);
    await cockpitPage.evaluate(()=>globalThis.__nativeSignOut());
    await cockpitPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
