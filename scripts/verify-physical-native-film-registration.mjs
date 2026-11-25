@@ -1,0 +1,74 @@
+// Physical integration with unchanged pinned native ingress and registry.
+import assert from 'node:assert/strict';
+import {randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
+import express from 'express';
+import mongoose from 'mongoose';
+import {MongoClient} from 'mongodb';
+import {createMovieMentorProjectsRouter} from './movieMentorProjects.js';
+import {createMovieMentorNativeProjectCreationAuthority} from './ai/MovieMentorNativeProjectCreationAuthority.js';
+import {createMovieMentorProjectOwnershipAuthority} from './ai/MovieMentorProjectOwnershipRegistry.js';
+import {createProvenanceAuthority} from './isolated-server-publication-provenance.mjs';
+import {createWritableAdmissionGate} from './isolated-writable-admission-gate.mjs';
+import {createServerProjectSelectionAuthority} from './isolated-server-original-red-project-selection.mjs';
+import {createStudioOwnerVaultAuthority} from './isolated-studio-owner-vault-authority.mjs';
+import {createNativeFilmRegistration} from './isolated-native-film-registration.mjs';
+const uri=process.env.MONGO_URI;
+assert.match(uri,/^mongodb:\/\/127\.0\.0\.1:27017\//);
+const client=new MongoClient(uri);await client.connect();
+const db=client.db('isolated_native_film_registration');
+const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const now=Math.floor(Date.now()/1000),b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+const issuer='https://isolated-auth.test',audience='movie-mentor-creator-write';
+function jwt(sub){const data=b64({alg:'RS256',typ:'JWT'})+'.'+b64({iss:issuer,aud:audience,sub,iat:now,nbf:now-1,exp:now+600});return data+'.'+sign('RSA-SHA256',Buffer.from(data),privateKey).toString('base64url')}
+function authenticate(token){try{const [h,p,s]=token.split('.');const claims=JSON.parse(Buffer.from(p,'base64url'));return JSON.parse(Buffer.from(h,'base64url')).alg==='RS256'&&verify('RSA-SHA256',Buffer.from(h+'.'+p),publicKey,Buffer.from(s,'base64url'))&&claims.iss===issuer&&claims.aud===audience&&claims.exp>Math.floor(Date.now()/1000)&&claims.nbf<=Math.floor(Date.now()/1000)?claims.sub:null}catch{return null}}
+const ownerId='native-owner-'+randomUUID(),owner=jwt(ownerId),foreign=jwt('foreign');
+let server;
+try{
+ await mongoose.connect(uri,{autoIndex:false});
+ const registry=mongoose.connection.collection('movie_mentor_project_ownership');
+ await registry.createIndex({projectId:1},{unique:true});
+ await registry.createIndex({establishmentAuthorityId:1},{unique:true});
+ const ownershipAuthority=createMovieMentorProjectOwnershipAuthority();
+ const nativeProjectCreationAuthority=createMovieMentorNativeProjectCreationAuthority({ownershipAuthority,expectedIssuer:issuer,expectedAudience:audience,verifyCredential:async({credential})=>{
+  const subject=authenticate(credential);if(!subject)throw Error('invalid token');
+  return {verified:true,subject,issuer,audience,verificationMethod:'RS256-test',verificationVersion:'1',authenticatedAt:new Date(now*1000),expiresAt:new Date((now+600)*1000),active:true,revoked:false};
+ }});
+ const provenance=createProvenanceAuthority({db,client,publicKey});
+ const gate=createWritableAdmissionGate({db,client,publicKey});
+ const selection=createServerProjectSelectionAuthority({gate,db,client});
+ const bindings=db.collection('studio_owner_vault_bindings'),projects=db.collection('projects');
+ const vaults=createStudioOwnerVaultAuthority({bindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:authenticate,readSelection:selection.read});
+ await vaults.initialize();await selection.receipts.createIndex({projectId:1,operationId:1},{unique:true});
+ const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate});
+ const app=express();app.use(express.json());app.use('/api/movie-mentor',createMovieMentorProjectsRouter({nativeProjectCreationAuthority}));
+ server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
+ const identity={domain:'iband.movie-mentor.project',schema:1,issuance:'secure-web-crypto',legacy:false};
+ const create=(projectId,token=owner)=>fetch('http://127.0.0.1:'+server.address().port+'/api/movie-mentor/projects',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({projectId,identity})});
+ const {vaultId}=await vaults.create({token:owner});assert.ok(vaultId);
+ const filmA='movie-project-'+randomUUID(),filmB='movie-project-'+randomUUID();
+ assert.equal((await registration.register({token:owner,projectId:filmA})).ok,false);
+ assert.equal((await create(filmA)).status,201);
+ assert.equal((await registration.register({token:owner,projectId:filmA})).ok,true);
+ const history=[{role:'creator',text:'Midnight door'},{role:'mentor',text:'Opening scene'}];
+ assert.equal((await provenance.append({token:owner,projectId:filmA,operationId:'film-a-conversation',expectedRevision:1,content:{scenes:[],conversationMessages:history}})).ok,true);
+ await projects.updateOne({_id:filmA},{$set:{revision:2,state:{scenes:[],conversationMessages:history}}});
+ const before=await provenance.states.findOne({projectId:filmA});
+ assert.equal(await registry.countDocuments({projectId:filmB}),0);
+ assert.equal(await projects.countDocuments({_id:filmB}),0);
+ assert.equal((await create(filmB)).status,201);
+ assert.equal((await create(filmB)).status,200);
+ assert.equal((await create(filmB,foreign)).status,403);
+ assert.equal((await registration.register({token:foreign,projectId:filmB})).ok,false);
+ assert.deepEqual(await registration.register({token:owner,projectId:filmB}),{ok:true,projectId:filmB,replayed:false});
+ assert.deepEqual(await registration.register({token:owner,projectId:filmB}),{ok:true,projectId:filmB,replayed:true});
+ assert.equal(await registry.countDocuments({projectId:filmB}),1);
+ assert.equal(await provenance.ledger.countDocuments({projectId:filmB}),1);
+ const selected=await selection.read({token:owner,projectId:vaultId});
+ assert.equal((await selection.select({token:owner,projectId:vaultId,operationId:'select-new-film',expectedRevision:selected.revision,nextActiveProjectId:filmB})).ok,true);
+ assert.equal((await selection.read({token:owner,projectId:vaultId})).activeProjectId,filmB);
+ assert.deepEqual((await projects.findOne({_id:filmB})).state,{scenes:[],conversationMessages:[]});
+ assert.deepEqual(await provenance.states.findOne({projectId:filmA}),before);
+ console.log('GREEN PHYSICAL_PINNED_NATIVE_HTTP_NEW_FILM_OWNERSHIP_REGISTRATION_SELECTION');
+ console.log('GREEN PHYSICAL_NEW_FILM_EMPTY_HISTORY_ORIGINAL_FILM_UNCHANGED');
+ console.log('HELD APPLICATION_SESSION_NEW_FILM_CALLER_AND_RESTART_CONTINUITY');
+}finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}

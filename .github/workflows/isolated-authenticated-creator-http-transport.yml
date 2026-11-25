@@ -62,6 +62,8 @@ on:
       - 'scripts/verify-physical-async-authenticated-studio-react-worker.mjs'
       - 'scripts/isolated-studio-owner-vault-authority.mjs'
       - 'scripts/isolated-studio-vault-express-router.mjs'
+      - 'scripts/isolated-native-film-registration.mjs'
+      - 'scripts/verify-physical-native-film-registration.mjs'
       - 'scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs'
       - 'scripts/verify-physical-composed-application-studio-react-orchestrator.mjs'
       - 'scripts/verify-isolated-application-owned-studio-service-composition.mjs'
@@ -385,6 +387,9 @@ jobs:
           cp ../scripts/verify-physical-async-authenticated-studio-react-worker.mjs .
           cp ../scripts/verify-physical-async-authenticated-studio-react-orchestrator.mjs .
           node ./verify-physical-async-authenticated-studio-react-orchestrator.mjs
+          cp ../scripts/isolated-native-film-registration.mjs .
+          cp ../scripts/verify-physical-native-film-registration.mjs .
+          node ./verify-physical-native-film-registration.mjs
           cp ../scripts/isolated-pinned-studio-route-authority-candidate.mjs .
           cp ../scripts/isolated-studio-authority-route-lifecycle.mjs .
           cp ../scripts/isolated-studio-route-authority-react-shell.jsx .
