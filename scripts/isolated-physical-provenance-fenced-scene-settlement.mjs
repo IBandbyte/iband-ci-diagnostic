@@ -180,6 +180,7 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
    if(!vault||!canonical||!project||!canonical.activeWriterFence||!canonical.activeAdoptionGrant||!Array.isArray(project.state?.conversationMessages)||digest(canonical.state.content)!==digest(project.state))return {ok:false};
    const admission=await gate.admissions.findOne({projectId,ownerId,fence:canonical.activeWriterFence,grantId:canonical.activeAdoptionGrant,ownershipRevision:canonical.ownershipRevision,revision:expectedRevision,status:'admitted'},{session});
    if(!admission||admission.stateDigest!==digest(canonical.state)||await receipts.findOne({projectId,ownerId,fence:admission.fence},{session}))return {ok:false};
+   if(canonical.strictCanonicalConversation===true&&canonical.nativeExecutionBoundWriterFence===admission.fence)return {ok:false};
    const records=await gate.ledger.find({projectId,ownerId,ownershipRevision:canonical.ownershipRevision},{session}).sort({revision:1}).toArray(),outbox=canonical.state.durablePublicationOutbox;
    if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>digest(r.entry)!==digest(outbox[i]))||records.at(-1).stateDigest!==digest(canonical.state)||records.at(-1).fullOutboxDigest!==digest(outbox))return {ok:false};
    const lock=await gate.states.updateOne({_id:vault._id,revision:expectedSelectionRevision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{conversationSelectionFence:1}},{session});

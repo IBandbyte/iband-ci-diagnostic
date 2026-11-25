@@ -86,7 +86,13 @@ try{
  app.post('/studio/read-admission',async(req,res)=>res.json(await gate.readAdmission({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-retire',async(req,res)=>res.json(await settlement.retireConversationWriter({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
- app.post('/studio/native-conversation-recover',async(req,res)=>res.json(await settlement.recoverInterruptedConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ let recoverCanonicalUnpublished=null;
+ app.post('/studio/native-conversation-recover',async(req,res)=>{
+  const input={...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')};
+  const prior=await settlement.recoverInterruptedConversation(input);
+  if(prior.reason==='unsettled-writer-held'&&recoverCanonicalUnpublished)return res.json(await recoverCanonicalUnpublished(input));
+  return res.json(prior);
+ });
  app.post('/studio/native-conversation-cancel',async(req,res)=>res.json(await settlement.cancelUncommittedConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  let dropNextConversationAck=false,droppedAcks=0;
  app.post('/studio/native-conversation-settle',async(req,res)=>{
@@ -674,9 +680,9 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
       const prior=await strictBindings.findOne(identity,{session});
       if(prior&&Object.entries(binding).some(([k,val])=>prior[k]!==val))return false;
       const lock=await gate.states.updateOne({_id:vault._id,revision:vault.revision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{nativeExecutionInitiationFence:1}},{session});
-      const writerLock=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$inc:{nativeExecutionInitiationFence:1}},{session});
+      const writerLock=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$inc:{nativeExecutionInitiationFence:1},$set:{nativeExecutionBoundWriterFence:fence}},{session});
       if(lock.modifiedCount!==1||writerLock.modifiedCount!==1)throw Error('native-initiation-race');
-      if(!prior)await strictBindings.insertOne(binding,{session});
+      if(!prior)await strictBindings.insertOne({...binding,creatorText:creatorMessage.text},{session});
       return true;
      },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}catch{return deny()}finally{await session.endSession()}
      if(!bound)return deny();
@@ -692,6 +698,24 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
      if(!binding||binding.requestDigest!==buildRequestDigest({creatorMessage:body.creatorMessage?.text?.trim()||'',projectId:body.projectId,options:{}}))return res.json({ok:false});
      return res.json(await strict.settleConversation({...body,token}));
     });
+    recoverCanonicalUnpublished=async({token,selectionVaultId,projectId})=>{
+     const ownerId=authenticate(token),deny={ok:false,reason:'unsettled-writer-held'};
+     if(!ownerId)return deny;
+     const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false,'state.content.activeProjectId':projectId});
+     const state=await gate.states.findOne({projectId,ownerId,revoked:false,strictCanonicalConversation:true});
+     if(!vault||!state?.activeWriterFence)return deny;
+     const binding=await strictBindings.findOne({ownerId,projectId,selectionVaultId,fence:state.activeWriterFence,expectedRevision:state.revision});
+     if(!binding||typeof binding.creatorText!=='string'||binding.requestDigest!==buildRequestDigest({creatorMessage:binding.creatorText,projectId,options:{}}))return deny;
+     const row=await authorityDb.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId,creatorTurnId:binding.creatorTurnId,requestDigest:binding.requestDigest,phase:'settled'});
+     if(!row?.executionId)return deny;
+     const result=await execution.authority.readCanonicalResult({executionId:row.executionId});
+     if(result?.authorized!==true||typeof result.resultPayload?.text!=='string')return deny;
+     const creatorMessage={id:binding.creatorTurnId,role:'creator',text:binding.creatorText};
+     const mentorMessage={id:'mentor-'+binding.creatorTurnId,role:'mentor',text:result.resultPayload.text,metadata:{backendMetadata:{creatorTurnId:binding.creatorTurnId}}};
+     const committed=await strict.settleConversation({token,selectionVaultId,projectId,operationId:binding.operationId,creatorTurnId:binding.creatorTurnId,expectedRevision:binding.expectedRevision,fence:binding.fence,creatorMessage,mentorMessage});
+     if(!committed.ok)return deny;
+     return settlement.recoverInterruptedConversation({token,selectionVaultId,projectId});
+    };
     const strictCockpitPath=root+'src/components/studio/'+base+'_StrictCockpit.jsx';
     files.push(strictCockpitPath);
     const fixtureSubmit='const result=await nativeMovieService.run("submit",{creatorMessage:{id,role:"creator",text},mentorMessage:{id:globalThis.crypto.randomUUID(),role:"mentor",text:"Diagnostic mentor response",metadata:{backendMetadata:{creatorTurnId:id}}}});';
