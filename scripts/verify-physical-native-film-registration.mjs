@@ -101,7 +101,22 @@ try{
   return res.json(result);
  });
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
- if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
+ if(process.env.NATIVE_CANONICAL_RESTART_COURT){
+  const expected=JSON.parse(process.env.NATIVE_CANONICAL_RESTART_COURT);
+  const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
+  const factory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>(await vaults.resolve({token})).vaultId,readLocalBytes:()=>'unchanged-local-bytes'});
+  const session=factory({getAuthToken:async()=>owner}),opened=await session.open();
+  assert.equal(opened.ok,true);
+  const recovered=await opened.services.resumeNativeConversation({projectId:expected.projectId});
+  assert.equal(recovered.ok,true,'fresh server must reconstruct completed unpublished canonical turn: '+JSON.stringify(recovered));
+  assert.equal(recovered.view.writable,false);
+  assert.equal(recovered.view.projectRevision,expected.revision+1);
+  assert.deepEqual(recovered.view.conversationMessages.slice(0,-2),expected.history);
+  assert.equal(recovered.view.conversationMessages.at(-2).id,expected.creatorTurnId);
+  assert.equal(recovered.view.conversationMessages.at(-2).text,expected.text);
+  assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+1);
+  console.log('GREEN PHYSICAL_INDEPENDENT_SERVER_CANONICAL_UNPUBLISHED_RECOVERY');
+ }else if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
   const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
   const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
   const views=[];
@@ -955,6 +970,45 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
        assert.equal(providerRequests.length,bypassCalls+15);
        assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+3);
        console.log('GREEN PHYSICAL_CONCURRENT_BROWSER_CANONICAL_RECOVERY_EXACTLY_ONCE');
+       const restartPage=peers[0];
+       await restartPage.getByRole('button',{name:'Request native writing'}).click();
+       await restartPage.getByText('Server writer admitted',{exact:true}).waitFor();
+       const restartText='Independent server recovery '+randomUUID();
+       await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+       let notifyRestart,restartIntent;
+       const restartReady=new Promise(resolve=>{notifyRestart=resolve});
+       await restartPage.route('**/native-authority/studio/native-execution-initiate',async route=>{
+        restartIntent=route.request().postDataJSON();
+        const response=await route.fetch();assert.equal(response.ok(),true);
+        const body=await response.json();assert.equal(body.ok,true,JSON.stringify(body));
+        notifyRestart();await new Promise(resolve=>restartPage.once('close',resolve));
+       });
+       const restartRegion=restartPage.getByLabel('Native cockpit conversation');
+       await restartRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(restartText);
+       await restartRegion.getByRole('button',{name:'Send',exact:true}).click();
+       await Promise.race([restartReady,new Promise((_,reject)=>setTimeout(()=>reject(Error('independent server recovery setup timed out')),15000))]);
+       assert.deepEqual(await projects.findOne({_id:routeFilm}),concurrentProject);
+       assert.equal(providerRequests.length,bypassCalls+20);
+       assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+3);
+       await restartPage.close();
+       // A new OS process composes its own HTTP server and connects to the same disposable database.
+       // The original server does not participate in its recovery request.
+       const expectedRestart={projectId:routeFilm,revision:concurrentProject.revision,history:concurrentProject.state.conversationMessages,creatorTurnId:restartIntent.creatorTurnId,text:restartText,receipts:bypassReceipts+3};
+       const child=await new Promise((resolve,reject)=>{
+        const p=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_CANONICAL_RESTART_COURT:JSON.stringify(expectedRestart)},stdio:['ignore','pipe','pipe']});
+        let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);
+        const timer=setTimeout(()=>{p.kill();reject(Error('fresh server recovery court timed out'))},30000);
+        p.on('error',e=>{clearTimeout(timer);reject(e)});p.on('close',status=>{clearTimeout(timer);resolve({status,stdout,stderr})});
+       });
+       process.stdout.write(child.stdout);process.stderr.write(child.stderr);
+       assert.equal(child.status,0,child.stderr);
+       const afterRestart=await projects.findOne({_id:routeFilm});
+       assert.equal(afterRestart.revision,concurrentProject.revision+1);
+       assert.equal(afterRestart.state.conversationMessages.at(-2).id,restartIntent.creatorTurnId);
+       assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+4);
+       assert.equal(providerRequests.length,bypassCalls+20);
+       assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+4);
+       console.log('GREEN PHYSICAL_INDEPENDENT_SERVER_RECOVERY_ACCOUNTING_EXACTLY_ONCE');
       }finally{await Promise.all(peers.map(page=>page.close()));}
 
      }finally{await restarted.close();}
