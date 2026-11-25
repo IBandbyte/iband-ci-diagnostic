@@ -912,6 +912,51 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
       assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+2);
       assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+2);
       console.log('GREEN PHYSICAL_GENUINE_CANONICAL_COMPOSER_CONTINUATION_AFTER_UNPUBLISHED_RECOVERY');
+      // Independent browser contexts must reconstruct the same pending conversation.
+      await restarted.getByRole('button',{name:'Request native writing'}).click();
+      await restarted.getByText('Server writer admitted',{exact:true}).waitFor();
+      const concurrentText='Concurrent session recovery '+randomUUID();
+      await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+      let notifyConcurrent;
+      const concurrentReady=new Promise(resolve=>{notifyConcurrent=resolve});
+      await restarted.route('**/native-authority/studio/native-execution-initiate',async route=>{
+       const response=await route.fetch();assert.equal(response.ok(),true);
+       const body=await response.json();assert.equal(body.ok,true,JSON.stringify(body));
+       notifyConcurrent();await new Promise(resolve=>restarted.once('close',resolve));
+      });
+      await resumedRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(concurrentText);
+      await resumedRegion.getByRole('button',{name:'Send',exact:true}).click();
+      await Promise.race([concurrentReady,new Promise((_,reject)=>setTimeout(()=>reject(Error('concurrent recovery setup timed out')),15000))]);
+      assert.deepEqual(await projects.findOne({_id:routeFilm}),continued);
+      assert.equal(providerRequests.length,bypassCalls+15);
+      assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+2);
+      await restarted.close();
+      const peers=await Promise.all([browser.newPage(),browser.newPage()]);
+      try{
+       await Promise.all(peers.map(async page=>{await page.goto(url);await page.getByRole('status',{name:'Studio authority locked'}).waitFor();}));
+       let arrived=0,releasePeers;
+       const peerBarrier=new Promise(resolve=>{releasePeers=resolve});
+       await Promise.all(peers.map(page=>page.route('**/native-authority/studio/native-conversation-recover',async route=>{
+        arrived++;if(arrived===2)releasePeers();await peerBarrier;await route.continue();
+       })));
+       await Promise.all(peers.map(page=>page.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)));
+       await Promise.all(peers.map(async page=>{
+        const history=page.getByLabel('Committed conversation transcript');
+        await history.getByText(concurrentText,{exact:true}).waitFor({timeout:20000});
+        assert.equal(await history.getByText(concurrentText,{exact:true}).count(),1);
+        assert.equal(await history.getByText(continuationText,{exact:true}).count(),1);
+       }));
+       assert.equal(arrived,2);
+       const concurrentProject=await projects.findOne({_id:routeFilm});
+       assert.equal(concurrentProject.revision,continued.revision+1);
+       assert.deepEqual(concurrentProject.state.conversationMessages.slice(0,-2),continued.state.conversationMessages);
+       assert.equal(concurrentProject.state.conversationMessages.at(-2).text,concurrentText);
+       assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+3);
+       assert.equal(providerRequests.length,bypassCalls+15);
+       assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+3);
+       console.log('GREEN PHYSICAL_CONCURRENT_BROWSER_CANONICAL_RECOVERY_EXACTLY_ONCE');
+      }finally{await Promise.all(peers.map(page=>page.close()));}
+
      }finally{await restarted.close();}
 
     }finally{await canonicalPage.close();}
