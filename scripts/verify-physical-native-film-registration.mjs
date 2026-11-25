@@ -400,6 +400,73 @@ try{
      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+2);
      assert.equal(providerRequests.length,10);
      console.log('GREEN PHYSICAL_POST_RESTART_GENUINE_BROWSER_COMPOSER_CONTINUATION_AND_RELOAD');
+     const secondFilm=expected.secondFilm;
+     assert.ok(secondFilm&&secondFilm.projectId!==expected.projectId);
+     const secondId=secondFilm.projectId;
+     const secondBefore=await projects.findOne({_id:secondId});
+     assert.equal(secondBefore.revision,secondFilm.project.revision);
+     assert.deepEqual(secondBefore.state.conversationMessages,secondFilm.project.state.conversationMessages);
+     assert.equal(await receipts.countDocuments({projectId:secondId}),secondFilm.receipts);
+     // Provision only the missing isolated canonical fixture for the existing second movie.
+     const secondPolicy=await gate.states.updateOne({projectId:secondId,ownerId,revoked:false,activeWriterFence:{$exists:false}},{$set:{strictCanonicalConversation:true}});
+     assert.equal(secondPolicy.modifiedCount,1);
+     const seed=randomUUID();
+     await mongoose.connection.db.collection('movie_mentor_creator_state').insertOne({projectId:secondId,revision:0,revisionAuthorityReference:'strict-'+seed,creatorStateGeneration:1,creatorStateFingerprint:'strict-fingerprint-'+seed,creatorAuthorityReference:'strict-authority-'+seed,snapshotReference:'strict-snapshot-'+seed,capturedAt:new Date()});
+     const choose=async(id,history)=>{
+      await page.getByLabel('Existing movie project ID').fill(id);
+      await page.getByRole('button',{name:'Recover server-authorised film'}).click();
+      await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,id);
+      for(const message of history.filter(m=>m.role==='creator'))await transcript.getByText(message.text,{exact:true}).first().waitFor({timeout:15000});
+     };
+     const submitBrowserTurn=async(id,before,text)=>{
+      const count=await receipts.countDocuments({projectId:id}),balance=await entitlement.findOne({principalId:ownerId}),calls=providerRequests.length;
+      await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+      await page.getByRole('button',{name:'Request native writing'}).click();
+      await page.getByText('Server writer admitted',{exact:true}).waitFor();
+      await composer.fill(text);
+      await region.getByRole('button',{name:'Send',exact:true}).click();
+      await transcript.getByText(text,{exact:true}).waitFor({timeout:20000});
+      const after=await projects.findOne({_id:id});
+      assert.equal(after.revision,before.revision+1);
+      assert.deepEqual(after.state.conversationMessages.slice(0,-2),before.state.conversationMessages);
+      const [creator,mentor]=after.state.conversationMessages.slice(-2);
+      assert.equal(creator.text,text);
+      const executionRow=await mongoose.connection.db.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:id,creatorTurnId:creator.id,phase:'settled'});
+      assert.ok(executionRow);
+      const result=await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId});
+      assert.equal(result.authorized,true);
+      assert.equal(mentor.text,result.resultPayload.text);
+      assert.equal(await receipts.countDocuments({projectId:id}),count+1);
+      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,balance.consumedUnits+1);
+      assert.equal(providerRequests.length,calls+5);
+      return after;
+     };
+     await choose(secondId,secondBefore.state.conversationMessages);
+     assert.equal(await transcript.getByText(browserText,{exact:true}).count(),0);
+     const secondText='Second movie after restart '+randomUUID();
+     const secondAfter=await submitBrowserTurn(secondId,secondBefore,secondText);
+     assert.deepEqual(await projects.findOne({_id:expected.projectId}),published);
+     await choose(expected.projectId,published.state.conversationMessages);
+     assert.equal(await transcript.getByText(secondText,{exact:true}).count(),0);
+     const firstText='First movie after switching back '+randomUUID();
+     const firstAfter=await submitBrowserTurn(expected.projectId,published,firstText);
+     assert.deepEqual(await projects.findOne({_id:secondId}),secondAfter);
+     await signIn();
+     await transcript.getByText(firstText,{exact:true}).waitFor({timeout:15000});
+     await choose(secondId,secondAfter.state.conversationMessages);
+     await signIn();
+     await transcript.getByText(secondText,{exact:true}).waitFor({timeout:15000});
+     assert.equal(await transcript.getByText(firstText,{exact:true}).count(),0);
+     await choose(expected.projectId,firstAfter.state.conversationMessages);
+     assert.equal(await transcript.getByText(secondText,{exact:true}).count(),0);
+     assert.deepEqual(await projects.findOne({_id:expected.projectId}),firstAfter);
+     assert.deepEqual(await projects.findOne({_id:secondId}),secondAfter);
+     assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+4);
+     assert.equal(await receipts.countDocuments({projectId:secondId}),secondFilm.receipts+1);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+4);
+     assert.equal(providerRequests.length,20);
+     console.log('GREEN PHYSICAL_POST_RESTART_TWO_FILM_BROWSER_CONTINUITY_AND_ACCOUNTING');
+
     }finally{if(freshBrowser)await freshBrowser.close();if(freshVite)freshVite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}}
 
    }finally{if(freshExecutionServer)await new Promise(r=>freshExecutionServer.close(r));await new Promise(r=>providerServer.close(r));}
@@ -1139,7 +1206,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
         const pending=await projects.findOne({_id:routeFilm});
         assert.deepEqual(pending,concurrentProject);
         assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+4);
-        writeFileSync(process.env.NATIVE_DEFERRED_EXIT_MANIFEST,JSON.stringify({...expectedRestart,originalPid:process.pid,consumedUnits:bypassBalance.consumedUnits+4,browserCandidate:{base,files:files.map(path=>({path,content:readFileSync(path,'utf8')}))}}));
+        writeFileSync(process.env.NATIVE_DEFERRED_EXIT_MANIFEST,JSON.stringify({...expectedRestart,originalPid:process.pid,consumedUnits:bypassBalance.consumedUnits+4,secondFilm:{projectId:created,project:await projects.findOne({_id:created}),receipts:await receipts.countDocuments({projectId:created})},browserCandidate:{base,files:files.map(path=>({path,content:readFileSync(path,'utf8')}))}}));
         console.log('GREEN PHYSICAL_CANONICAL_UNPUBLISHED_TURN_PRESERVED_BEFORE_PROCESS_EXIT');
        }else{
        const child=await new Promise((resolve,reject)=>{
