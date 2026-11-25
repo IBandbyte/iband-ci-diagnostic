@@ -119,7 +119,7 @@ export function createApplicationOwnedStudioServices({
   }catch{return {ok:false}}
  }
  let submitting=false;
- async function submitNativeConversation({creatorMessage,mentorMessage}={}){
+ async function submitNativeConversation({creatorMessage,mentorMessage}={}, {canonical=false}={}){
   const admitted=editable.getSnapshot(),selected=selection.getSnapshot();
   if(submitting||!admitted?.writable||selected?.activeProjectId!==admitted.projectId||selected.revision!==admitted.selectionRevision||!creatorMessage?.id)return {ok:false,reason:'native-writer-required'};
   submitting=true;
@@ -127,9 +127,23 @@ export function createApplicationOwnedStudioServices({
   const current=()=>{const e=editable.getSnapshot(),s=selection.getSnapshot();return e?.fence===admitted.fence&&s?.activeProjectId===projectId&&s.revision===admitted.selectionRevision};
   try{
    const token=snapshotToken();
-   const body={token,projectId,selectionVaultId,operationId,creatorTurnId:creatorMessage.id,expectedRevision:admitted.revision,fence:admitted.fence,creatorMessage,mentorMessage};
+   const intent={token,projectId,selectionVaultId,operationId,creatorTurnId:creatorMessage.id,expectedRevision:admitted.revision,fence:admitted.fence,creatorMessage};
+   if(canonical){
+    if(mentorMessage!==undefined)return {ok:false,reason:'browser-mentor-content-denied'};
+    const requestDigest=Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({creatorMessage:creatorMessage.text.trim(),projectId:projectId.trim(),options:{}}))))).map(x=>x.toString(16).padStart(2,'0')).join('');
+    if(!current()||snapshotToken()!==token)return {ok:false,reason:'stale-execution'};
+    const input={...intent,requestDigest};
+    let result;
+    try{result=await execute('/studio/native-execution-initiate',input)}catch{
+     if(!current()||snapshotToken()!==token)return {ok:false,reason:'stale-execution'};
+     result=await execute('/studio/native-execution-initiate',input);
+    }
+    if(!current()||snapshotToken()!==token||result?.ok!==true||result.projectId!==projectId||result.creatorTurnId!==creatorMessage.id||result.requestDigest!==requestDigest||result.mentorMessage?.role!=='mentor'||result.mentorMessage?.metadata?.backendMetadata?.creatorTurnId!==creatorMessage.id||typeof result.mentorMessage.text!=='string')return {ok:false,reason:'canonical-execution-unverified'};
+    mentorMessage=result.mentorMessage;
+   }
+   const body={...intent,mentorMessage};
    let settled=null;
-   try{settled=await execute('/studio/native-conversation-settle',body)}catch{
+   try{settled=await execute(canonical?'/studio/strict-conversation-settle':'/studio/native-conversation-settle',body)}catch{
     // A lost acknowledgement is not evidence of rollback. Never issue a new turn.
    }
    if(!current())return {ok:false,reason:'stale-settlement'};
