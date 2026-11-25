@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {randomUUID,generateKeyPairSync,sign,verify,createPublicKey,createHash} from 'node:crypto';
 import express from 'express';
 import {createPhysicalProvenanceFencedSceneSettlement} from './isolated-physical-provenance-fenced-scene-settlement.mjs';
-import {spawnSync} from 'node:child_process';
+import {spawnSync,spawn} from 'node:child_process';
+import {readFileSync,writeFileSync,unlinkSync} from 'node:fs';
 import {createApplicationStudioSessionFactory} from './isolated-application-studio-session-factory.mjs';
 import mongoose from 'mongoose';
 import {MongoClient} from 'mongodb';
@@ -86,6 +87,106 @@ try{
    assert.deepEqual(views.at(-1).conversationMessages,[x.creatorMessage,x.mentorMessage]);
    assert.equal(await receipts.countDocuments({projectId:x.projectId}),1);
   }
+  // Mount the pinned component with a restricted native read-only caller candidate.
+  // Do not expose the old cockpit's local-write controls in this candidate.
+  const base='native_conversation_recovery_'+randomUUID().replaceAll('-','');
+  const root='../frontend/',component=root+'src/components/studio/'+base+'.jsx',entry=root+base+'.jsx',html=root+base+'.html',config=root+base+'.config.mjs';
+  const files=[component,entry,html,config];
+  let browser,vite;
+  try{
+   let source=readFileSync(root+'src/components/studio/CreatorWorkspace.jsx','utf8');
+   function exact(from,to){assert.equal(source.split(from).length,2,'pinned native source drift: '+from);source=source.replace(from,to)}
+   exact('import React, { useEffect, useMemo, useState }','import React, { useEffect, useMemo, useState, useRef }');
+   exact('const CreatorWorkspace = ({ creatorName = "Creator",','const CreatorWorkspace = ({ nativeMovieService, creatorName = "Creator",');
+   exact('const [movieMessages, setMovieMessages] = useState(resumeSnapshot?.conversationMessages || []);','const [movieMessages, setMovieMessages] = useState(nativeMovieService ? [] : resumeSnapshot?.conversationMessages || []);');
+   exact('if (!resumeSnapshot?.projectId) return undefined;','if (nativeMovieService || !resumeSnapshot?.projectId) return undefined;');
+   const anchor='  const activeCreator = useMemo(';
+   exact(anchor,`  const nativeEpoch=useRef(0), nativePending=useRef(null);
+  const [nativeProject,setNativeProject]=useState(null);
+  const [nativeBusy,setNativeBusy]=useState(false);
+  const [nativeError,setNativeError]=useState("");
+  const recoverNative=async(action,target)=>{
+    const epoch=++nativeEpoch.current;
+    setNativeBusy(true);setNativeError("");setMovieMessages([]);setNativeProject(null);
+    try{
+      const result=await nativeMovieService.run(action,target);
+      if(epoch!==nativeEpoch.current)return;
+      if(!result?.ok||result.view?.writable!==false||result.view?.mode!=="read-only"||!Array.isArray(result.view.conversationMessages))throw Error("native recovery denied");
+      setNativeProject(result.view.projectId);setMovieMessages(result.view.conversationMessages);
+      if(action==="create")nativePending.current=null;
+    }catch{if(epoch===nativeEpoch.current)setNativeError("Movie recovery unavailable");}
+    finally{if(epoch===nativeEpoch.current)setNativeBusy(false);}
+  };
+  useEffect(()=>{
+    if(!nativeMovieService)return undefined;
+    void recoverNative("resume");
+    return ()=>{nativeEpoch.current++;};
+  },[nativeMovieService]);
+  const createNative=()=>{
+    if(!nativePending.current){
+      const id=globalThis.crypto?.randomUUID?.();
+      if(!id){setNativeError("Secure identity unavailable");return;}
+      nativePending.current="movie-project-"+id;
+    }
+    void recoverNative("create",nativePending.current);
+  };
+`+anchor);
+   const render='  return (\n    <main style={styles.workspace}>';
+   exact(render,`  if(nativeMovieService)return <main style={styles.workspace}>
+    <h1>AI Movie Making</h1>
+    <section aria-label="Recover an existing Movie Mentor project">
+      <input aria-label="Existing movie project ID" value={recoveryProjectId} onChange={e=>{nativeEpoch.current++;setNativeBusy(false);setNativeProject(null);setMovieMessages([]);setRecoveryProjectId(e.target.value);}}/>
+      <button type="button" disabled={nativeBusy} onClick={()=>void recoverNative("choose",recoveryProjectId.trim())}>Recover server-authorised film</button>
+      <button type="button" disabled={nativeBusy} onClick={createNative}>Create new movie</button>
+      <output aria-label="Verified native movie">{nativeProject||"none"}</output>
+      <p>Read-only recovery. Editing remains blocked.</p>
+      {nativeError&&<p role="alert">{nativeError}</p>}
+      <ol aria-label="Restored conversation">{movieMessages.map((m,i)=><li key={m.id||i}>{m.role}: {m.text}</li>)}</ol>
+    </section>
+  </main>;
+`+render);
+   writeFileSync(component,source);
+   writeFileSync(entry,`import React from 'react';import {createRoot} from 'react-dom/client';import CreatorWorkspace from './src/components/studio/${base}.jsx';const nativeMovieService={run:(action,target)=>globalThis.nativeMovieRun(action,target)};createRoot(document.getElementById('root')).render(<CreatorWorkspace nativeMovieService={nativeMovieService}/>);`);
+   writeFileSync(html,`<html><body><div id="root"></div><script type="module" src="/${base}.jsx"></script></body></html>`);
+   writeFileSync(config,`import {defineConfig} from 'vite';import react from '@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()]});`);
+   vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port','52769','--strictPort','--config',base+'.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
+   let errors='';vite.stdout.on('data',x=>errors+=x);vite.stderr.on('data',x=>errors+=x);
+   const url='http://127.0.0.1:52769/'+base+'.html';
+   let ready=false;for(let i=0;i<100;i++){try{if((await fetch(url)).ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,150))}
+   assert.ok(ready,errors);
+   const {chromium}=await import('playwright');browser=await chromium.launch({headless:true});
+   const page=await browser.newPage();
+   let browserSession=null;
+   await page.exposeFunction('nativeMovieRun',async(action,target)=>{
+    if(action==='resume'||!browserSession){browserSession?.invalidate();browserSession=factory({getAuthToken:async()=>owner});const r=await browserSession.open();if(!r.ok)return r}
+    const app=browserSession.getServices();if(!app)return {ok:false};
+    if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-create-'+target});
+    const current=await selection.read({token:owner,projectId:vaultId});
+    const id=action==='resume'?current.activeProjectId:target;
+    return current.activeProjectId===id?app.applicationSecondFilm.reopen({token:owner,selectionVaultId:vaultId,projectId:id}):app.applicationSecondFilm.choose({token:owner,selectionVaultId:vaultId,nextProjectId:id,selectionOperationId:'browser-switch-'+randomUUID(),localMemory:{getState:()=>({})}});
+   });
+   const poll=async(locator,expected)=>{for(let i=0;i<100;i++){if((await locator.textContent())?.includes(expected))return;await new Promise(r=>setTimeout(r,100))}throw Error('browser projection missing '+expected+' '+await locator.textContent())};
+   await page.goto(url);
+   const display=page.getByLabel('Restored conversation'),identity=page.getByLabel('Verified native movie');
+   const first=expected[0],second=expected[1];
+   await poll(identity,first.projectId);await poll(display,first.creatorMessage.text);
+   await page.getByLabel('Existing movie project ID').fill(second.projectId);
+   assert.equal(await display.textContent(),'');
+   await page.getByRole('button',{name:'Recover server-authorised film'}).click();
+   await poll(identity,second.projectId);await poll(display,second.mentorMessage.text);
+   assert.ok(!(await display.textContent()).includes(first.creatorMessage.text));
+   await page.reload();await poll(identity,second.projectId);await poll(display,second.creatorMessage.text);
+   await page.getByRole('button',{name:'Create new movie'}).click();
+   for(let i=0;i<100;i++){const id=await identity.textContent();if(id.startsWith('movie-project-')&&id!==second.projectId&&id!==first.projectId)break;await new Promise(r=>setTimeout(r,100))}
+   const created=await identity.textContent();assert.match(created,/^movie-project-/);assert.notEqual(created,first.projectId);assert.notEqual(created,second.projectId);assert.equal(await display.textContent(),'');
+   assert.equal(await registry.countDocuments({projectId:created}),1);
+   await page.reload();await poll(identity,created);assert.equal(await display.textContent(),'');
+   await page.getByLabel('Existing movie project ID').fill(first.projectId);
+   await page.getByRole('button',{name:'Recover server-authorised film'}).click();await poll(identity,first.projectId);await poll(display,first.mentorMessage.text);
+   assert.ok(!(await display.textContent()).includes(second.creatorMessage.text));
+   browserSession?.invalidate();
+   console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
+  }finally{if(browser)await browser.close();if(vite)vite.kill();for(const f of files)try{unlinkSync(f)}catch{}}
   session.invalidate();assert.equal(session.getServices(),null);
   assert.equal(views.at(-1),null);
   console.log('GREEN PHYSICAL_NATIVE_FRESH_SERVER_AUTHENTICATED_TWO_FILM_CONVERSATION_PROJECTION');
@@ -161,8 +262,8 @@ try{
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_ATOMIC_CONVERSATION_SETTLEMENT_AND_REPLAY');
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_FRESH_PROCESS_DURABLE_READBACK');
  await new Promise(r=>server.close(r));server=null;
- const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)},encoding:'utf8',timeout:60000});
+ const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)},encoding:'utf8',timeout:180000});
  process.stdout.write(restarted.stdout||'');process.stderr.write(restarted.stderr||'');assert.equal(restarted.status,0,restarted.error?.message||restarted.stderr);
- console.log('HELD ACTUAL_CREATOR_WORKSPACE_CONVERSATION_RESTORATION');
+ console.log('HELD NATIVE_COCKPIT_EDITING_AND_REAL_ROUTE_SESSION_ADOPTION');
  }
 }finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}
