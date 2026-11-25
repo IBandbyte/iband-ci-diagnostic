@@ -85,6 +85,7 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
    const canonical=await gate.states.findOne({projectId,ownerId,ownershipRevision:admission.ownershipRevision,activeAdoptionGrant:admission.grantId,activeWriterFence:fence,revoked:false},{session});
    const project=await projects.findOne({_id:projectId,ownerId},{session});
    if(!canonical||!project||canonical.revision!==project.revision||digest(canonical.state.content)!==digest(project.state)||!Array.isArray(project.state.conversationMessages))return {ok:false};
+   if(canonical.strictCanonicalConversation===true&&verifyMentorExecution===null)return {ok:false};
    const records=await gate.ledger.find({projectId,ownerId,ownershipRevision:canonical.ownershipRevision},{session}).sort({revision:1}).toArray();
    const outbox=canonical.state.durablePublicationOutbox;
    if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>digest(r.entry)!==digest(outbox[i]))||records.at(-1).stateDigest!==digest(canonical.state)||records.at(-1).fullOutboxDigest!==digest(outbox))return {ok:false};

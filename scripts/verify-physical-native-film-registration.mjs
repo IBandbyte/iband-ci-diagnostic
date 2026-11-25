@@ -647,6 +647,8 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
     console.log('GREEN PHYSICAL_CANONICAL_MENTOR_EXECUTION_NATIVE_SETTLEMENT_FORGERY_REPLAY_AND_RECOVERY');
     // Independent browser adoption court. Keep the fixture and strict HTTP courts above.
     // The legacy composer path must fail here, before it can publish a fabricated response.
+    const policy=await gate.states.updateOne({projectId:routeFilm,ownerId,revoked:false,activeWriterFence:{$exists:false}},{$set:{strictCanonicalConversation:true}});
+    assert.equal(policy.modifiedCount,1,'strict policy must be durable before any strict writer admission');
     const strictBindings=db.collection('native_execution_initiation_bindings');
     await strictBindings.createIndex({ownerId:1,projectId:1,creatorTurnId:1},{unique:true});
     await strictBindings.createIndex({ownerId:1,projectId:1,fence:1},{unique:true});
@@ -666,7 +668,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
       const writer=await gate.admissions.findOne({projectId,ownerId:subject,fence,status:'admitted',revision:expectedRevision},{session});
       if(!vault||!writer||operationId!==writer.operationId+':'+creatorTurnId)return false;
       const state=await gate.states.findOne({projectId,ownerId:subject,revoked:false,revision:expectedRevision,ownershipRevision:writer.ownershipRevision,activeWriterFence:fence,activeAdoptionGrant:writer.grantId},{session});
-      if(!state)return false;
+      if(!state||state.strictCanonicalConversation!==true)return false;
       const identity={ownerId:subject,projectId,creatorTurnId};
       const binding={...identity,selectionVaultId,operationId,expectedRevision,fence,requestDigest:digest};
       const prior=await strictBindings.findOne(identity,{session});
