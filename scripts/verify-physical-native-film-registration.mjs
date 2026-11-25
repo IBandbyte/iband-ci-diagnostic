@@ -1,6 +1,6 @@
 // Physical integration with unchanged pinned native ingress and registry.
 import assert from 'node:assert/strict';
-import {randomUUID,generateKeyPairSync,sign,verify} from 'node:crypto';
+import {randomUUID,generateKeyPairSync,sign,verify,createPublicKey,createHash} from 'node:crypto';
 import express from 'express';
 import {createPhysicalProvenanceFencedSceneSettlement} from './isolated-physical-provenance-fenced-scene-settlement.mjs';
 import {spawnSync} from 'node:child_process';
@@ -19,12 +19,12 @@ const uri=process.env.MONGO_URI;
 assert.match(uri,/^mongodb:\/\/127\.0\.0\.1:27017\//);
 const client=new MongoClient(uri);await client.connect();
 const db=client.db('isolated_native_film_registration');
-const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const {publicKey,privateKey}=process.env.NATIVE_RECOVERY_PUBLIC_KEY?{publicKey:createPublicKey(process.env.NATIVE_RECOVERY_PUBLIC_KEY),privateKey:null}:generateKeyPairSync('rsa',{modulusLength:2048});
 const now=Math.floor(Date.now()/1000),b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
 const issuer='https://isolated-auth.test',audience='movie-mentor-creator-write';
 function jwt(sub){const data=b64({alg:'RS256',typ:'JWT'})+'.'+b64({iss:issuer,aud:audience,sub,iat:now,nbf:now-1,exp:now+600});return data+'.'+sign('RSA-SHA256',Buffer.from(data),privateKey).toString('base64url')}
 function authenticate(token){try{const [h,p,s]=token.split('.');const claims=JSON.parse(Buffer.from(p,'base64url'));return JSON.parse(Buffer.from(h,'base64url')).alg==='RS256'&&verify('RSA-SHA256',Buffer.from(h+'.'+p),publicKey,Buffer.from(s,'base64url'))&&claims.iss===issuer&&claims.aud===audience&&claims.exp>Math.floor(Date.now()/1000)&&claims.nbf<=Math.floor(Date.now()/1000)?claims.sub:null}catch{return null}}
-const ownerId='native-owner-'+randomUUID(),owner=jwt(ownerId),foreign=jwt('foreign');
+const ownerId=process.env.NATIVE_RECOVERY_OWNER_ID||'native-owner-'+randomUUID(),owner=process.env.NATIVE_RECOVERY_OWNER_TOKEN||jwt(ownerId),foreign=process.env.NATIVE_RECOVERY_FOREIGN_TOKEN||jwt('foreign');
 let server;
 try{
  await mongoose.connect(uri,{autoIndex:false});
@@ -50,9 +50,46 @@ try{
  app.post('/studio/native-film-register',async(req,res)=>res.json(await registration.register({token:req.get('authorization')?.replace(/^Bearer /,''),projectId:req.body.projectId})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-change',async(req,res)=>res.json(await selection.select({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
- app.post('/studio/read',async(req,res)=>{const sub=authenticate(req.get('authorization')?.replace(/^Bearer /,''));const p=sub&&await projects.findOne({_id:req.body.projectId,ownerId:sub});return res.json(p?{ok:true,projectId:p._id,revision:p.revision,state:p.state}:{ok:false})});
+ app.post('/studio/read',async(req,res)=>{
+  const sub=authenticate(req.get('authorization')?.replace(/^Bearer /,''));
+  const projectId=req.body.projectId;
+  if(!sub)return res.json({ok:false});
+  const proof=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:sub},projectId});
+  if(proof?.authorized!==true)return res.json({ok:false});
+  const p=await projects.findOne({_id:projectId,ownerId:sub});
+  const canonical=await provenance.states.findOne({projectId,ownerId:sub,revoked:false});
+  const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+  if(!p||!canonical||p.revision!==canonical.revision||hash(p.state)!==hash(canonical.state.content))return res.json({ok:false});
+  const records=await provenance.ledger.find({projectId,ownerId:sub,ownershipRevision:canonical.ownershipRevision},{ }).sort({revision:1}).toArray();
+  const outbox=canonical.state.durablePublicationOutbox;
+  if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>hash(r.entry)!==hash(outbox[i]))||records.at(-1).stateDigest!==hash(canonical.state)||records.at(-1).fullOutboxDigest!==hash(outbox))return res.json({ok:false});
+  return res.json({ok:true,projectId:p._id,revision:p.revision,state:p.state});
+ });
  app.post('/studio/native-conversation-settle',async(req,res)=>res.json(await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
+ if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
+  const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
+  const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
+  const views=[];
+  const factory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>(await vaults.resolve({token})).vaultId,readLocalBytes:()=>'unchanged-local-bytes',onView:x=>views.push(x)});
+  const session=factory({getAuthToken:async()=>owner}),opened=await session.open();assert.equal(opened.ok,true);
+  const vaultId=(await vaults.resolve({token:owner})).vaultId;
+  for(const x of [...expected].reverse()){
+   assert.equal((await transport({path:'/studio/read',token:foreign,body:{projectId:x.projectId}})).ok,false);
+   const current=await selection.read({token:owner,projectId:vaultId});
+   const recovered=current.activeProjectId===x.projectId?
+    await opened.services.applicationSecondFilm.reopen({token:owner,selectionVaultId:vaultId,projectId:x.projectId}):
+    await opened.services.applicationSecondFilm.choose({token:owner,selectionVaultId:vaultId,nextProjectId:x.projectId,selectionOperationId:'restart-select-'+x.projectId,localMemory:{getState:()=>({})}});
+   assert.equal(recovered.ok,true,JSON.stringify(recovered));
+   assert.equal(recovered.view.writable,false);
+   assert.deepEqual(recovered.view.conversationMessages,[x.creatorMessage,x.mentorMessage]);
+   assert.deepEqual(views.at(-1).conversationMessages,[x.creatorMessage,x.mentorMessage]);
+   assert.equal(await receipts.countDocuments({projectId:x.projectId}),1);
+  }
+  session.invalidate();assert.equal(session.getServices(),null);
+  assert.equal(views.at(-1),null);
+  console.log('GREEN PHYSICAL_NATIVE_FRESH_SERVER_AUTHENTICATED_TWO_FILM_CONVERSATION_PROJECTION');
+ }else{
  const identity={domain:'iband.movie-mentor.project',schema:1,issuance:'secure-web-crypto',legacy:false};
  const create=(projectId,token=owner)=>fetch('http://127.0.0.1:'+server.address().port+'/api/movie-mentor/projects',{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify({projectId,identity})});
  const {vaultId}=await vaults.create({token:owner});assert.ok(vaultId);
@@ -123,5 +160,9 @@ try{
  assert.equal(child.status,0,child.stderr||child.error?.message);
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_ATOMIC_CONVERSATION_SETTLEMENT_AND_REPLAY');
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_FRESH_PROCESS_DURABLE_READBACK');
- console.log('HELD AUTHENTICATED_RESTART_CONVERSATION_PROJECTION_AND_APPLICATION_ROUTE_ADOPTION');
+ await new Promise(r=>server.close(r));server=null;
+ const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)},encoding:'utf8',timeout:60000});
+ process.stdout.write(restarted.stdout||'');process.stderr.write(restarted.stderr||'');assert.equal(restarted.status,0,restarted.error?.message||restarted.stderr);
+ console.log('HELD ACTUAL_CREATOR_WORKSPACE_CONVERSATION_RESTORATION');
+ }
 }finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}

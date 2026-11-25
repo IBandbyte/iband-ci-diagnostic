@@ -52,7 +52,7 @@ export function createIsolatedStudioContinuityMigration({selection,recovery,edit
     result.snapshot.writable!==false||result.snapshot.readOnly!==true)
     return deny('durable-recovery-unverified');
   publish({mode:'read-only',projectId:current.activeProjectId,selectionRevision:current.revision,
-   projectRevision:result.snapshot.projectRevision,scenes:result.snapshot.scenes,writable:false});
+   projectRevision:result.snapshot.projectRevision,scenes:result.snapshot.scenes,...(result.snapshot.conversationMessages===undefined?{}:{conversationMessages:result.snapshot.conversationMessages}),writable:false});
   return {ok:true,view:snapshot()};
  }
  async function requestEditing({token,selectionVaultId,operationId}={}){
@@ -74,11 +74,11 @@ export function createIsolatedStudioContinuityMigration({selection,recovery,edit
    after?.activeProjectId!==readonly.projectId||after.revision!==readonly.selectionRevision){
    editable.invalidate();
    publish({mode:'read-only',projectId:readonly.projectId,selectionRevision:readonly.selectionRevision,
-     projectRevision:readonly.projectRevision,scenes:readonly.scenes,writable:false});
+     projectRevision:readonly.projectRevision,scenes:readonly.scenes,...(readonly.conversationMessages===undefined?{}:{conversationMessages:readonly.conversationMessages}),writable:false});
    return deny('admission-unverified');
   }
   publish({mode:'server-editable',projectId:readonly.projectId,selectionRevision:readonly.selectionRevision,
-   projectRevision:readonly.projectRevision,scenes:readonly.scenes,operationId:result.adoption.operationId,
+   projectRevision:readonly.projectRevision,scenes:readonly.scenes,...(readonly.conversationMessages===undefined?{}:{conversationMessages:readonly.conversationMessages}),operationId:result.adoption.operationId,
    fence:result.adoption.fence,writable:true,serverOwned:true});
   return {ok:true,view:snapshot()};
  }
