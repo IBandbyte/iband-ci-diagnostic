@@ -75,6 +75,7 @@ try{
  app.post('/studio/read-admission',async(req,res)=>res.json(await gate.readAdmission({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-retire',async(req,res)=>res.json(await settlement.retireConversationWriter({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/native-conversation-recover',async(req,res)=>res.json(await settlement.recoverInterruptedConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  let dropNextConversationAck=false,droppedAcks=0;
  app.post('/studio/native-conversation-settle',async(req,res)=>{
   const result=await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')});
@@ -192,7 +193,7 @@ try{
     if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-create-'+target});
     const current=await selection.read({token:owner,projectId:vaultId});
     const id=action==='resume'?current.activeProjectId:target;
-    return current.activeProjectId===id?app.applicationSecondFilm.reopen({token:owner,selectionVaultId:vaultId,projectId:id}):app.applicationSecondFilm.choose({token:owner,selectionVaultId:vaultId,nextProjectId:id,selectionOperationId:'browser-switch-'+randomUUID(),localMemory:{getState:()=>({})}});
+    return current.activeProjectId===id?app.resumeNativeConversation({projectId:id}):app.applicationSecondFilm.choose({token:owner,selectionVaultId:vaultId,nextProjectId:id,selectionOperationId:'browser-switch-'+randomUUID(),localMemory:{getState:()=>({})}});
    });
    const poll=async(locator,expected)=>{for(let i=0;i<100;i++){if(await locator.count()&&(await locator.textContent())?.includes(expected))return;await new Promise(r=>setTimeout(r,100))}throw Error('browser projection missing '+expected+'; visible body: '+await page.locator('body').innerText())};
    await page.goto(url);
@@ -245,6 +246,31 @@ try{
    await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'Renewed native conversation');
    assert.equal(await receipts.countDocuments({projectId:created}),3);
    assert.equal((await projects.findOne({_id:created})).state.conversationMessages.length,6);
+   // Commit through HTTP, destroy the acknowledgement and discard the old application
+   // session before its receipt/retirement path can run. No pending input is passed
+   // into the next session. The actual pinned browser reload supplies only selection.
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   const stranded=browserSession.getServices().getContinuity();
+   const turn=randomUUID(),interrupted={projectId:created,selectionVaultId:vaultId,operationId:stranded.operationId+':'+turn,creatorTurnId:turn,expectedRevision:4,fence:stranded.fence,creatorMessage:{id:turn,role:'creator',text:'Interrupted session committed conversation'},mentorMessage:{id:randomUUID(),role:'mentor',text:'Durable interrupted mentor response',metadata:{backendMetadata:{creatorTurnId:turn}}}};
+   assert.equal((await transport({path:'/studio/native-conversation-recover',token:owner,body:{projectId:created,selectionVaultId:vaultId}})).reason,'unsettled-writer-held');
+   dropNextConversationAck=true;
+   await assert.rejects(transport({path:'/studio/native-conversation-settle',token:owner,body:interrupted}));
+   assert.equal(droppedAcks,2);
+   assert.equal(await receipts.countDocuments({projectId:created}),4);
+   assert.equal((await gate.admissions.findOne({projectId:created,fence:stranded.fence})).status,'admitted');
+   assert.equal((await transport({path:'/studio/native-conversation-recover',token:foreign,body:{projectId:created,selectionVaultId:vaultId}})).ok,false);
+   browserSession.invalidate();browserSession=null;
+   await page.reload();await poll(identity,created);await poll(display,'Interrupted session committed conversation');await poll(display,'Durable interrupted mentor response');
+   assert.equal((await gate.admissions.findOne({projectId:created,fence:stranded.fence})).status,'retired');
+   assert.equal(await receipts.countDocuments({projectId:created}),4);
+   const again=await browserSession.getServices().resumeNativeConversation({projectId:created});assert.equal(again.ok,true);assert.equal(again.recovered,false);
+   assert.equal((await transport({path:'/studio/native-conversation-settle',token:owner,body:interrupted})).ok,false);
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   await page.getByLabel('Native creator message').fill('Fresh session continuation');
+   await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'Fresh session continuation');
+   assert.equal(await receipts.countDocuments({projectId:created}),5);
+   const finalProject=await projects.findOne({_id:created});assert.equal(finalProject.revision,6);assert.equal(finalProject.state.conversationMessages.length,10);
+   console.log('GREEN PHYSICAL_NATIVE_INTERRUPTED_SESSION_DURABLE_RECEIPT_RECONSTRUCTION_AND_CONTINUATION');
    console.log('GREEN PHYSICAL_NATIVE_SAME_FILM_RENEWAL_AND_LOST_HTTP_ACK_RECEIPT_RECOVERY');
    browserSession?.invalidate();
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');

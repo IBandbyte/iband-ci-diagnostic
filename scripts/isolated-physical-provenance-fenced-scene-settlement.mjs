@@ -144,5 +144,25 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
   catch(e){if(e?.code===112||e?.code===11000||e?.hasErrorLabel?.('TransientTransactionError'))return {ok:false};throw e}
   finally{await session.endSession()}
  }
- return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt,retireConversationWriter});
+ // Discover only a completed native conversation writer from durable authority.
+ // Never release an admitted but uncommitted writer on the strength of a reload.
+ async function recoverInterruptedConversation({token,selectionVaultId,projectId}={}){
+  const ownerId=gate.authenticateOwner(token);if(!ownerId||!selectionVaultId||!projectId)return {ok:false};
+  const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false,'state.content.activeProjectId':projectId});
+  if(!vault)return {ok:false};
+  const canonical=await gate.states.findOne({projectId,ownerId,revoked:false});
+  if(!canonical||!Array.isArray(canonical.state?.content?.conversationMessages))return {ok:false};
+  if(!canonical.activeWriterFence&&!canonical.activeAdoptionGrant)return {ok:true,projectId,recovered:false};
+  const prior=await receipts.findOne({projectId,ownerId,fence:canonical.activeWriterFence,revision:canonical.revision});
+  if(!prior?.creatorTurnId||!prior.commitId)return {ok:false,reason:'unsettled-writer-held'};
+  const pair=canonical.state.content.conversationMessages.slice(-2);
+  let fingerprint;try{fingerprint=digest(validateConversationSettlement({projectId,operationId:prior.operationId,creatorTurnId:prior.creatorTurnId,expectedRevision:prior.expectedRevision,creatorMessage:pair[0],mentorMessage:pair[1]}))}catch{return {ok:false}};
+  if(fingerprint!==prior.fingerprint||prior.revision!==prior.expectedRevision+1||prior.commitId!==digest({projectId,operationId:prior.operationId,ownerId,fence:prior.fence,fingerprint,revision:prior.revision}))return {ok:false};
+  const receipt=await readConversationReceipt({token,projectId,operationId:prior.operationId});
+  if(!receipt.ok||receipt.serverCommitId!==prior.commitId||receipt.committedRevision!==canonical.revision)return {ok:false};
+  const retired=await retireConversationWriter({token,selectionVaultId,projectId,operationId:prior.operationId,fence:prior.fence,serverCommitId:prior.commitId});
+  if(!retired.ok)return {ok:false};
+  return {ok:true,projectId,recovered:true,receipt};
+ }
+ return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt,retireConversationWriter,recoverInterruptedConversation});
 }

@@ -87,6 +87,23 @@ export function createApplicationOwnedStudioServices({
    return {ok:true,projectId,view:recovered.view};
   }catch{return {ok:false,reason:'native-creation-outcome-unverified'}}finally{creating=false}
  }
+ // A newly authenticated session supplies no old turn, fence or operation ID.
+ // The server reconstructs the committed writer from its own durable records.
+ async function resumeNativeConversation({projectId}={}){
+  try{
+   const token=snapshotToken(),bytes=readLocalBytes(),epoch=creationEpoch;
+   const selected=await readSelected({token,projectId:selectionVaultId});
+   if(selected?.ok!==true||selected.activeProjectId!==projectId)return {ok:false,reason:'selection-unverified'};
+   const result=await execute('/studio/native-conversation-recover',{token,selectionVaultId,projectId});
+   if(epoch!==creationEpoch||snapshotToken()!==token||readLocalBytes()!==bytes||result?.ok!==true||result.projectId!==projectId)return {ok:false,reason:result?.reason||'interrupted-recovery-unverified'};
+   const after=await readSelected({token,projectId:selectionVaultId});
+   if(after?.ok!==true||after.activeProjectId!==projectId||after.revision!==selected.revision)return {ok:false,reason:'selection-changed'};
+   const reopened=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
+   if(epoch!==creationEpoch||!reopened.ok||reopened.view?.projectId!==projectId||reopened.view?.writable!==false||!Array.isArray(reopened.view.conversationMessages))return {ok:false,reason:'native-recovery-unverified'};
+   if(result.recovered&&(!result.receipt?.serverCommitId||result.receipt.committedRevision!==reopened.view.projectRevision))return {ok:false,reason:'interrupted-receipt-unverified'};
+   return {ok:true,view:reopened.view,recovered:result.recovered,receipt:result.receipt};
+  }catch{return {ok:false,reason:'interrupted-recovery-unavailable'}}
+ }
  let submitting=false;
  async function submitNativeConversation({creatorMessage,mentorMessage}={}){
   const admitted=editable.getSnapshot(),selected=selection.getSnapshot();
@@ -127,7 +144,7 @@ export function createApplicationOwnedStudioServices({
   creationEpoch++;pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
  };
  return Object.freeze({
-  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,
+  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,resumeNativeConversation,
   getSelection:()=>selection.getSnapshot(),getContinuity:()=>continuity.getSnapshot(),
   invalidate
  });
