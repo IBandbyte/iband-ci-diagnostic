@@ -645,6 +645,74 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
     assert.equal((await submit(genuine)).ok,false);assert.equal(await receipts.countDocuments({projectId:routeFilm}),3);
     recovered.invalidate();
     console.log('GREEN PHYSICAL_CANONICAL_MENTOR_EXECUTION_NATIVE_SETTLEMENT_FORGERY_REPLAY_AND_RECOVERY');
+    // Independent browser adoption court. Keep the fixture and strict HTTP courts above.
+    // The legacy composer path must fail here, before it can publish a fabricated response.
+    const canonicalPage=await browser.newPage();
+    try{
+     await canonicalPage.goto(url);
+     await canonicalPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+     await canonicalPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+     const region=canonicalPage.getByLabel('Native cockpit conversation');
+     const transcript=region.getByLabel('Committed conversation transcript');
+     const composer=region.getByPlaceholder("Tell Movie Mentor what's on your mind...");
+     await transcript.getByText(genuine.creatorMessage.text,{exact:true}).waitFor({timeout:15000});
+     await canonicalPage.getByRole('button',{name:'Request native writing'}).click();
+     await canonicalPage.getByText('Server writer admitted',{exact:true}).waitFor();
+     const browserMessage='Canonical browser execution adoption '+randomUUID();
+     const beforeBrowser=await projects.findOne({_id:routeFilm});
+     const beforeBalance=await entitlements.findOne({principalId:ownerId});
+     const beforeCalls=providerRequests.length;
+     const beforeReceipts=await receipts.countDocuments({projectId:routeFilm});
+     await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+     let observed,release,signal;
+     const observedRequest=new Promise(resolve=>{signal=resolve});
+     const released=new Promise(resolve=>{release=resolve});
+     await canonicalPage.route('**/native-authority/**',async route=>{
+      const request=route.request(),path=new URL(request.url()).pathname.replace('/native-authority','');
+      if(!observed&&['/studio/native-execution-initiate','/studio/native-conversation-settle','/studio/strict-conversation-settle','/api/movie-mentor/turn'].includes(path)){
+       observed={path,body:request.postDataJSON()};
+       signal();await released;
+       if(path!=='/studio/native-execution-initiate'){await route.abort();return;}
+      }
+      await route.continue();
+     });
+     await composer.fill(browserMessage);
+     await region.getByRole('button',{name:'Send',exact:true}).click();
+     try{
+      await Promise.race([observedRequest,new Promise((_,reject)=>setTimeout(()=>reject(Error('canonical browser composer did not initiate execution')),10000))]);
+      assert.equal(observed.path,'/studio/native-execution-initiate','genuine browser composer must initiate fenced canonical execution, not fixture settlement');
+      assert.equal(observed.body.projectId,routeFilm);
+      assert.equal(observed.body.creatorMessage?.text,browserMessage);
+      assert.equal(observed.body.creatorMessage?.id,observed.body.creatorTurnId);
+      assert.ok(observed.body.fence);
+      assert.equal(Object.hasOwn(observed.body,'mentorMessage'),false);
+      assert.equal(await transcript.getByText(browserMessage,{exact:true}).count(),0);
+      assert.deepEqual(await projects.findOne({_id:routeFilm}),beforeBrowser);
+      assert.equal(providerRequests.length,beforeCalls);
+     }finally{release();}
+     await transcript.getByText(browserMessage,{exact:true}).waitFor({timeout:20000});
+     const browserExecution=await authorityDb.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:routeFilm,creatorTurnId:observed.body.creatorTurnId,phase:'settled'});
+     assert.ok(browserExecution);
+     const browserResult=await execution.authority.readCanonicalResult({executionId:browserExecution.executionId});
+     assert.equal(browserResult.authorized,true);
+     assert.equal(browserResult.requestDigest,buildRequestDigest({creatorMessage:browserMessage,projectId:routeFilm,options:{}}));
+     const published=await projects.findOne({_id:routeFilm});
+     assert.equal(published.revision,beforeBrowser.revision+1);
+     assert.equal(published.state.conversationMessages.at(-2).text,browserMessage);
+     assert.equal(published.state.conversationMessages.at(-1).text,browserResult.resultPayload.text);
+     assert.equal(providerRequests.length,beforeCalls+5);
+     assert.equal(await receipts.countDocuments({projectId:routeFilm}),beforeReceipts+1);
+     assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,beforeBalance.consumedUnits+1);
+     await canonicalPage.goto(url,{waitUntil:'domcontentloaded'});
+     await canonicalPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+     await canonicalPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+     await transcript.getByText(browserMessage,{exact:true}).waitFor({timeout:15000});
+     assert.equal(await transcript.getByText(browserMessage,{exact:true}).count(),1);
+     assert.equal(providerRequests.length,beforeCalls+5);
+     assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,beforeBalance.consumedUnits+1);
+     console.log('GREEN PHYSICAL_GENUINE_BROWSER_CANONICAL_EXECUTION_SETTLEMENT_AND_RELOAD');
+    }finally{await canonicalPage.close();}
+
    }finally{if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
    console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
