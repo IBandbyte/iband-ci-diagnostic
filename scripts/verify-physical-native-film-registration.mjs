@@ -154,6 +154,14 @@ try{
   console.log('GREEN PHYSICAL_ORIGINAL_PROCESS_EXIT_CANONICAL_CONVERSATION_READBACK');
  }else if(process.env.NATIVE_CANONICAL_RESTART_COURT){
   const expected=JSON.parse(process.env.NATIVE_CANONICAL_RESTART_COURT);
+  if(expected.originalPid){
+   assert.notEqual(process.pid,expected.originalPid);
+   const pending=await projects.findOne({_id:expected.projectId});
+   assert.equal(pending.revision,expected.revision);
+   assert.deepEqual(pending.state.conversationMessages,expected.history);
+   assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts);
+   assert.equal((await mongoose.connection.db.collection('movie_mentor_inference_entitlement').findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits);
+  }
   const execution=createMovieMentorProductionInferenceExecutionComposition();
   assert.equal(execution.ready,true);
   const accounting=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
@@ -177,6 +185,10 @@ try{
   assert.equal(repeated.view.projectRevision,recovered.view.projectRevision);
   assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+1);
   console.log('GREEN PHYSICAL_STOPPED_SERVER_CANONICAL_RECOVERY_REPEAT_READBACK');
+  if(expected.originalPid){
+   assert.equal((await mongoose.connection.db.collection('movie_mentor_inference_entitlement').findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits);
+   console.log('GREEN PHYSICAL_UNPUBLISHED_CANONICAL_RECOVERY_AFTER_ORIGINAL_PROCESS_EXIT');
+  }
  }else if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
   const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
   const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
@@ -1034,6 +1046,13 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
        console.log('GREEN PHYSICAL_ORIGINAL_CANONICAL_HTTP_SERVERS_STOPPED');
        // A new OS process composes its own HTTP server and connects to the same disposable database.
        const expectedRestart={projectId:routeFilm,revision:concurrentProject.revision,history:concurrentProject.state.conversationMessages,creatorTurnId:restartIntent.creatorTurnId,text:restartText,receipts:bypassReceipts+3};
+       if(process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
+        const pending=await projects.findOne({_id:routeFilm});
+        assert.deepEqual(pending,concurrentProject);
+        assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+4);
+        writeFileSync(process.env.NATIVE_DEFERRED_EXIT_MANIFEST,JSON.stringify({...expectedRestart,originalPid:process.pid,consumedUnits:bypassBalance.consumedUnits+4}));
+        console.log('GREEN PHYSICAL_CANONICAL_UNPUBLISHED_TURN_PRESERVED_BEFORE_PROCESS_EXIT');
+       }else{
        const child=await new Promise((resolve,reject)=>{
         const p=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_CANONICAL_RESTART_COURT:JSON.stringify(expectedRestart)},stdio:['ignore','pipe','pipe']});
         let stdout='',stderr='';p.stdout.on('data',x=>stdout+=x);p.stderr.on('data',x=>stderr+=x);
@@ -1056,6 +1075,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
          projectId:routeFilm,revision:afterRestart.revision,history:afterRestart.state.conversationMessages,
          receipts:bypassReceipts+4,consumedUnits:bypassBalance.consumedUnits+4,originalPid:process.pid
         }));
+       }
        }
       }finally{await Promise.all(peers.map(page=>page.close()));}
 
@@ -1142,16 +1162,24 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_ATOMIC_CONVERSATION_SETTLEMENT_AND_REPLAY');
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_FRESH_PROCESS_DURABLE_READBACK');
  await new Promise(r=>server.close(r));server=null;
- const manifest='./native-post-exit-'+randomUUID()+'.json';
+ const manifest=process.env.NATIVE_DEFERRED_EXIT_MANIFEST||'./native-post-exit-'+randomUUID()+'.json';
  const recoveryEnv={...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)};
  try{
   const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,NATIVE_POST_EXIT_MANIFEST:manifest},encoding:'utf8',timeout:180000});
   process.stdout.write(restarted.stdout||'');process.stderr.write(restarted.stderr||'');assert.equal(restarted.status,0,restarted.error?.message||restarted.stderr);
   const expected=JSON.parse(readFileSync(manifest,'utf8'));
   assert.equal(restarted.pid,expected.originalPid);
-  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,NATIVE_POST_EXIT_READBACK:JSON.stringify(expected)},encoding:'utf8',timeout:30000});
+  const mode=process.env.NATIVE_DEFERRED_EXIT_MANIFEST?'NATIVE_CANONICAL_RESTART_COURT':'NATIVE_POST_EXIT_READBACK';
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(expected)},encoding:'utf8',timeout:30000});
   process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
  }finally{try{unlinkSync(manifest)}catch{}}
+ if(!process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
+  const deferredManifest='./native-deferred-exit-'+randomUUID()+'.json';
+  try{
+   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:180000});
+   process.stdout.write(deferred.stdout||'');process.stderr.write(deferred.stderr||'');assert.equal(deferred.status,0,deferred.error?.message||deferred.stderr);
+  }finally{try{unlinkSync(deferredManifest)}catch{}}
+ }
  console.log('HELD NATIVE_COCKPIT_EDITING_AND_REAL_ROUTE_SESSION_ADOPTION');
  }
 }finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}
