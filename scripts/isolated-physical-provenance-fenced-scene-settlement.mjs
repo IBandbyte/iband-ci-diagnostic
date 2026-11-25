@@ -121,5 +121,28 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
   if(!records.some(r=>r.operationId===operationId&&r.revision===prior.revision))return {ok:false};
   return {ok:true,projectId,operationId,creatorTurnId:prior.creatorTurnId,committedRevision:prior.revision,serverCommitId:prior.commitId};
  }
- return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt});
+ async function retireConversationWriter({token,selectionVaultId,projectId,operationId,fence,serverCommitId}={}){
+  const ownerId=gate.authenticateOwner(token);if(!ownerId||!selectionVaultId||!fence||!serverCommitId)return {ok:false};
+  const session=client.startSession();
+  try{return await session.withTransaction(async()=>{
+   const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false,'state.content.activeProjectId':projectId},{session});
+   if(!vault)return {ok:false};
+   const prior=await receipts.findOne({projectId,ownerId,operationId,fence,commitId:serverCommitId},{session});
+   if(!prior?.creatorTurnId)return {ok:false};
+   const admission=await gate.admissions.findOne({projectId,ownerId,operationId:prior.admissionId,fence},{session});
+   const canonical=await gate.states.findOne({projectId,ownerId,revoked:false,ownershipRevision:admission?.ownershipRevision},{session});
+   if(!admission||!canonical||canonical.revision<prior.revision)return {ok:false};
+   if(admission.status==='retired')return {ok:true,projectId,operationId,serverCommitId,retired:true};
+   if(admission.status!=='admitted'||canonical.activeWriterFence!==fence||canonical.activeAdoptionGrant!==admission.grantId||canonical.revision!==prior.revision)return {ok:false};
+   const locked=await gate.states.updateOne({_id:vault._id,revision:vault.revision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{conversationSelectionFence:1}},{session});
+   if(locked.modifiedCount!==1)throw Error('conversation-retirement-selection-race');
+   const changed=await gate.states.updateOne({_id:canonical._id,revision:prior.revision,activeWriterFence:fence,revoked:false},{$unset:{activeWriterFence:'',activeAdoptionGrant:''}},{session});
+   const retired=await gate.admissions.updateOne({_id:admission._id,status:'admitted'},{$set:{status:'retired'}},{session});
+   if(changed.modifiedCount!==1||retired.modifiedCount!==1)throw Error('conversation-retirement-race');
+   return {ok:true,projectId,operationId,serverCommitId,retired:true};
+  },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}
+  catch(e){if(e?.code===112||e?.code===11000||e?.hasErrorLabel?.('TransientTransactionError'))return {ok:false};throw e}
+  finally{await session.endSession()}
+ }
+ return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt,retireConversationWriter});
 }

@@ -97,10 +97,18 @@ export function createApplicationOwnedStudioServices({
   try{
    const token=snapshotToken();
    const body={token,projectId,selectionVaultId,operationId,creatorTurnId:creatorMessage.id,expectedRevision:admitted.revision,fence:admitted.fence,creatorMessage,mentorMessage};
-   const settled=await execute('/studio/native-conversation-settle',body);
-   if(!current()||settled?.ok!==true||settled.projectId!==projectId||settled.operationId!==operationId||settled.creatorTurnId!==creatorMessage.id||settled.committedRevision!==admitted.revision+1||!settled.serverCommitId)return {ok:false,reason:'settlement-unverified'};
+   let settled=null;
+   try{settled=await execute('/studio/native-conversation-settle',body)}catch{
+    // A lost acknowledgement is not evidence of rollback. Never issue a new turn.
+   }
+   if(!current())return {ok:false,reason:'stale-settlement'};
+   if(settled!==null&&(settled?.ok!==true||settled.projectId!==projectId||settled.operationId!==operationId||settled.creatorTurnId!==creatorMessage.id||settled.committedRevision!==admitted.revision+1||!settled.serverCommitId))return {ok:false,reason:'settlement-unverified'};
    const receipt=await execute('/studio/native-conversation-receipt',{token,projectId,operationId});
-   if(!current()||receipt?.ok!==true||receipt.projectId!==projectId||receipt.operationId!==operationId||receipt.creatorTurnId!==creatorMessage.id||receipt.committedRevision!==settled.committedRevision||receipt.serverCommitId!==settled.serverCommitId)return {ok:false,reason:'receipt-unverified'};
+   if(!current()||receipt?.ok!==true||receipt.projectId!==projectId||receipt.operationId!==operationId||receipt.creatorTurnId!==creatorMessage.id||receipt.committedRevision!==admitted.revision+1||!receipt.serverCommitId||(settled!==null&&receipt.serverCommitId!==settled.serverCommitId))return {ok:false,reason:'receipt-unverified'};
+   const committed=await readProject({token,projectId});
+   if(!current()||committed?.ok!==true||committed.projectId!==projectId||committed.revision!==receipt.committedRevision||!Array.isArray(committed.state?.conversationMessages)||JSON.stringify(committed.state.conversationMessages.slice(-2))!==JSON.stringify([creatorMessage,mentorMessage]))return {ok:false,reason:'conversation-readback-unverified'};
+   const retired=await execute('/studio/native-conversation-retire',{token,selectionVaultId,projectId,operationId,fence:admitted.fence,serverCommitId:receipt.serverCommitId});
+   if(!current()||retired?.ok!==true||retired.retired!==true||retired.projectId!==projectId||retired.operationId!==operationId||retired.serverCommitId!==receipt.serverCommitId)return {ok:false,reason:'writer-retirement-unverified'};
    const recovered=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
    if(!recovered.ok||recovered.view?.projectRevision!==receipt.committedRevision||!Array.isArray(recovered.view.conversationMessages)||JSON.stringify(recovered.view.conversationMessages.slice(-2))!==JSON.stringify([creatorMessage,mentorMessage]))return {ok:false,reason:'conversation-readback-unverified'};
    return {ok:true,view:recovered.view,receipt};

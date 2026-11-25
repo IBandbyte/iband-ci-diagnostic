@@ -74,7 +74,13 @@ try{
  app.post('/studio/admit-publication',async(req,res)=>res.json(await gate.admit({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/read-admission',async(req,res)=>res.json(await gate.readAdmission({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
- app.post('/studio/native-conversation-settle',async(req,res)=>res.json(await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/native-conversation-retire',async(req,res)=>res.json(await settlement.retireConversationWriter({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ let dropNextConversationAck=false,droppedAcks=0;
+ app.post('/studio/native-conversation-settle',async(req,res)=>{
+  const result=await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')});
+  if(dropNextConversationAck&&result.ok&&!result.replay){dropNextConversationAck=false;droppedAcks++;res.socket.destroy();return;}
+  return res.json(result);
+ });
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
  if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
   const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
@@ -211,6 +217,20 @@ try{
    await poll(display,'Native browser conversation');await poll(display,'Diagnostic mentor response');
    const browserReceipt=await receipts.findOne({projectId:created});assert.ok(browserReceipt?.commitId);
    assert.equal(await receipts.countDocuments({projectId:created}),1);
+   const unchangedSelection=await selection.read({token:owner,projectId:vaultId});
+   const firstRetired=await gate.admissions.findOne({projectId:created,fence:browserReceipt.fence});assert.equal(firstRetired.status,'retired');
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   dropNextConversationAck=true;
+   await page.getByLabel('Native creator message').fill('Same film lost acknowledgement');
+   await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'Same film lost acknowledgement');
+   assert.equal(droppedAcks,1);
+   assert.equal(await receipts.countDocuments({projectId:created}),2);
+   assert.deepEqual(await selection.read({token:owner,projectId:vaultId}),unchangedSelection);
+   const sameFilm=await projects.findOne({_id:created});assert.equal(sameFilm.revision,3);assert.equal(sameFilm.state.conversationMessages.length,4);
+   const laterReceipt=await receipts.findOne({projectId:created,revision:3});assert.ok(laterReceipt);assert.notEqual(laterReceipt.fence,browserReceipt.fence);
+   const stale={projectId:created,selectionVaultId:vaultId,operationId:browserReceipt.admissionId+':same-film-stale',creatorTurnId:'same-film-stale',expectedRevision:3,fence:browserReceipt.fence,creatorMessage:{id:'same-film-stale',role:'creator',text:'stale'},mentorMessage:{id:'same-film-stale-mentor',role:'mentor',text:'stale',metadata:{backendMetadata:{creatorTurnId:'same-film-stale'}}}};
+   assert.equal((await transport({path:'/studio/native-conversation-settle',token:owner,body:stale})).ok,false);
+   assert.equal((await transport({path:'/studio/native-conversation-retire',token:foreign,body:{projectId:created,selectionVaultId:vaultId,operationId:laterReceipt.operationId,fence:laterReceipt.fence,serverCommitId:laterReceipt.commitId}})).ok,false);
    await page.reload();await poll(identity,created);await poll(display,'Native browser conversation');
    await page.getByLabel('Existing movie project ID').fill(first.projectId);
    await page.getByRole('button',{name:'Recover server-authorised film'}).click();await poll(identity,first.projectId);await poll(display,first.mentorMessage.text);
@@ -223,7 +243,9 @@ try{
    await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
    await page.getByLabel('Native creator message').fill('Renewed native conversation');
    await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'Renewed native conversation');
-   assert.equal(await receipts.countDocuments({projectId:created}),2);
+   assert.equal(await receipts.countDocuments({projectId:created}),3);
+   assert.equal((await projects.findOne({_id:created})).state.conversationMessages.length,6);
+   console.log('GREEN PHYSICAL_NATIVE_SAME_FILM_RENEWAL_AND_LOST_HTTP_ACK_RECEIPT_RECOVERY');
    browserSession?.invalidate();
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
    console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
