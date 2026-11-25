@@ -861,6 +861,16 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
      assert.equal(providerRequests.length,bypassCalls+5);
      assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+1);
      assert.equal(await transcript.getByText(interruptionMessage,{exact:true}).count(),0);
+     const boundVault=await gate.states.findOne({projectId:vaultId,ownerId,revoked:false});
+     const boundCancel={projectId:routeFilm,selectionVaultId:vaultId,expectedRevision:interruptedIntent.expectedRevision,expectedSelectionRevision:boundVault.revision,confirmCancellation:true};
+     const boundState=await gate.states.findOne({projectId:routeFilm,ownerId});
+     const boundAdmission=await gate.admissions.findOne({projectId:routeFilm,ownerId,fence:interruptedIntent.fence});
+     assert.equal((await transport({path:'/studio/native-conversation-cancel',token:owner,body:boundCancel})).ok,false,'a paid bound execution must not be discarded by cancellation');
+     assert.deepEqual(await gate.states.findOne({projectId:routeFilm,ownerId}),boundState);
+     assert.deepEqual(await gate.admissions.findOne({projectId:routeFilm,ownerId,fence:interruptedIntent.fence}),boundAdmission);
+     assert.deepEqual(await projects.findOne({_id:routeFilm}),bypassBefore);
+     assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts);
+     console.log('GREEN PHYSICAL_BOUND_CANONICAL_EXECUTION_CANCELLATION_DENIAL');
      await canonicalPage.close();
      const restarted=await browser.newPage();
      try{
@@ -877,6 +887,31 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
       assert.equal(providerRequests.length,bypassCalls+5);
       assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+1);
       console.log('GREEN PHYSICAL_COMPLETE_BROWSER_INTERRUPTION_CANONICAL_UNPUBLISHED_TURN_RECOVERY');
+      // Continue through the actual composer, not a synthetic settlement caller.
+      await restarted.getByRole('button',{name:'Request native writing'}).click();
+      await restarted.getByText('Server writer admitted',{exact:true}).waitFor();
+      const continuationText='Genuine canonical continuation after recovered turn '+randomUUID();
+      await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+      const resumedRegion=restarted.getByLabel('Native cockpit conversation');
+      await resumedRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(continuationText);
+      await resumedRegion.getByRole('button',{name:'Send',exact:true}).click();
+      await restoredTranscript.getByText(continuationText,{exact:true}).waitFor({timeout:20000});
+      assert.equal(await restoredTranscript.getByText(interruptionMessage,{exact:true}).count(),1);
+      assert.equal(await restoredTranscript.getByText(continuationText,{exact:true}).count(),1);
+      const continued=await projects.findOne({_id:routeFilm});
+      assert.equal(continued.revision,recoveredProject.revision+1);
+      assert.deepEqual(continued.state.conversationMessages.slice(0,-2),recoveredProject.state.conversationMessages);
+      const continuedCreator=continued.state.conversationMessages.at(-2);
+      assert.equal(continuedCreator.text,continuationText);
+      const continuedExecution=await authorityDb.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:routeFilm,creatorTurnId:continuedCreator.id,phase:'settled'});
+      assert.ok(continuedExecution);
+      const continuedResult=await execution.authority.readCanonicalResult({executionId:continuedExecution.executionId});
+      assert.equal(continuedResult.authorized,true);
+      assert.equal(continued.state.conversationMessages.at(-1).text,continuedResult.resultPayload.text);
+      assert.equal(providerRequests.length,bypassCalls+10);
+      assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+2);
+      assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+2);
+      console.log('GREEN PHYSICAL_GENUINE_CANONICAL_COMPOSER_CONTINUATION_AFTER_UNPUBLISHED_RECOVERY');
      }finally{await restarted.close();}
 
     }finally{await canonicalPage.close();}
