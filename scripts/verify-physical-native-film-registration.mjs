@@ -49,6 +49,7 @@ try{
  const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
  const app=express();app.use(express.json());app.use('/api/movie-mentor',createMovieMentorProjectsRouter({nativeProjectCreationAuthority}));
  app.post('/studio/native-film-register',async(req,res)=>res.json(await registration.register({token:req.get('authorization')?.replace(/^Bearer /,''),projectId:req.body.projectId})));
+ app.post('/studio/selection-vault',async(req,res)=>res.json(await vaults.resolve({token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-change',async(req,res)=>res.json(await selection.select({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/read',async(req,res)=>{
@@ -304,6 +305,71 @@ try{
    console.log('GREEN PHYSICAL_NATIVE_EXPLICIT_UNCOMMITTED_CANCELLATION_AND_STALE_WRITER_DENIAL');
    console.log('GREEN PHYSICAL_NATIVE_SAME_FILM_RENEWAL_AND_LOST_HTTP_ACK_RECEIPT_RECOVERY');
    browserSession?.invalidate();
+   // Preserve the original Node-owned court above. Mount a second, genuinely
+   // browser-owned composition through the pinned App /studio route.
+   await page.close();
+   const modules=['isolated-studio-server-selection-adoption.mjs','isolated-application-recovery-adoption-boundary.mjs','isolated-application-editable-adoption-boundary.mjs','isolated-studio-continuity-migration-candidate.mjs','isolated-application-owned-second-film-boundary.mjs','isolated-original-continuity-second-film-migration.mjs','isolated-application-owned-studio-service-composition.mjs','isolated-application-studio-async-clerk-session-adapter.mjs','isolated-application-studio-session-factory.mjs'];
+   for(const module of modules){const dest=root+base+'_'+module;files.push(dest);let content=readFileSync('./'+module,'utf8');for(const dependency of modules)content=content.replaceAll("'./"+dependency+"'","'./"+base+'_'+dependency+"'");writeFileSync(dest,content)}
+   const appPath=root+'src/'+base+'_App.jsx',shellPath=root+'src/components/studio/mentor/StudioRouteAuthorityShell.jsx',lifecyclePath=root+'src/components/studio/mentor/MovieMentorStudioRouteLifecycle.mjs';
+   files.push(appPath,shellPath,lifecyclePath);
+   const {transformPinnedStudioRouteToAuthorityShell}=await import('../scripts/isolated-pinned-studio-route-authority-candidate.mjs');
+   let pinnedApp=transformPinnedStudioRouteToAuthorityShell(readFileSync(root+'src/App.jsx','utf8'));
+   const shellImport='import StudioRouteAuthorityShell from "./components/studio/mentor/StudioRouteAuthorityShell.jsx";';
+   assert.equal(pinnedApp.split(shellImport).length,2);
+   pinnedApp=pinnedApp.replace(shellImport,shellImport+'\nimport {createRouteSession,RouteWorkspace} from "../'+base+'.jsx";');
+   const route='element={<StudioRouteAuthorityShell onGenerate={generateMovieMentorLiveResponse} />}';
+   assert.equal(pinnedApp.split(route).length,2);
+   writeFileSync(appPath,pinnedApp.replace(route,'element={<StudioRouteAuthorityShell onGenerate={generateMovieMentorLiveResponse} createSession={createRouteSession} WorkspaceComponent={RouteWorkspace} />}'));
+   writeFileSync(shellPath,readFileSync('../scripts/isolated-studio-route-authority-react-shell.jsx','utf8'));
+   writeFileSync(lifecyclePath,readFileSync('../scripts/isolated-studio-authority-route-lifecycle.mjs','utf8'));
+   writeFileSync(entry,`import React,{useMemo} from 'react';import {createRoot} from 'react-dom/client';import {BrowserRouter} from 'react-router-dom';import App from './src/${base}_App.jsx';import CreatorWorkspace from './src/components/studio/${base}.jsx';import {createApplicationStudioSessionFactory} from './${base}_isolated-application-studio-session-factory.mjs';import {setMovieMentorCreatorAuthState,clearMovieMentorCreatorAuthState} from './src/components/studio/mentor/MovieMentorCreatorAuthenticationTransport.js';
+const transport=async({path,token,body})=>{const r=await fetch('/native-authority'+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('native HTTP '+r.status);return r.json()};
+const factory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>{const proof=await transport({path:'/studio/selection-vault',token,body:{}});return proof?.ok===true?proof.vaultId:null},readLocalBytes:()=>JSON.stringify(localStorage.getItem('iband.creator-memory'))});
+export function createRouteSession(auth){const session=factory(auth);globalThis.__nativeRouteSession=session;return session}
+export function RouteWorkspace({nativeApplicationServices:app}){const nativeMovieService=useMemo(()=>({run:async(action,target)=>{const {token,selectionVaultId}=app.recoveryServices();if(action==='admit')return app.applicationSecondFilm.requestEditing({token,selectionVaultId,operationId:'browser-route-admit-'+crypto.randomUUID()});if(action==='submit')return app.submitNativeConversation(target);if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-route-create-'+target});const current=await app.studioServices.request('/studio/selection-read',{projectId:selectionVaultId});const id=action==='resume'?current.activeProjectId:target;return current.activeProjectId===id?app.resumeNativeConversation({projectId:id}):app.applicationSecondFilm.choose({token,selectionVaultId,nextProjectId:id,selectionOperationId:'browser-route-switch-'+crypto.randomUUID(),localMemory:{getState:()=>({})}})}}),[app]);return <CreatorWorkspace nativeMovieService={nativeMovieService}/>;}
+globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>globalThis.__nativeToken});globalThis.__nativeSignOut=()=>clearMovieMentorCreatorAuthState();history.replaceState({},'', '/studio');createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`);
+   // Vite proxy config is set before restarting the disposable browser server.
+   vite.kill();await new Promise(resolve=>{if(vite.exitCode!==null||vite.signalCode!==null)resolve();else vite.once('exit',resolve)});
+   writeFileSync(config,`import {defineConfig} from 'vite';import react from '@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()],server:{proxy:{'/native-authority':{target:'http://127.0.0.1:${server.address().port}',changeOrigin:true,rewrite:path=>path.replace(/^\\/native-authority/,'')}}}});`);
+   vite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port','52769','--strictPort','--config',base+'.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
+   let routeReady=false;for(let i=0;i<100;i++){try{if((await fetch(url)).ok){routeReady=true;break}}catch{}await new Promise(r=>setTimeout(r,150))}assert.ok(routeReady);
+   const routePage=await browser.newPage(),requests=[];
+   routePage.on('request',r=>{if(r.url().includes('/native-authority/'))requests.push(r.url())});
+   await routePage.goto(url);
+   await routePage.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});
+   assert.equal(await routePage.getByLabel('Verified native movie').count(),0);
+   await routePage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},foreign);
+   await routePage.locator('[data-denial-reason="studio-auth-unverified"]').waitFor({state:'attached',timeout:15000});
+   await routePage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+   const routeIdentity=routePage.getByLabel('Verified native movie'),routeDisplay=routePage.getByLabel('Restored conversation');
+   await routeIdentity.waitFor({timeout:15000});
+   await routePage.getByText('After explicit cancellation',{exact:false}).waitFor({timeout:15000});
+   assert.equal(await routeIdentity.textContent(),created);
+   const bytes=await routePage.evaluate(()=>localStorage.getItem('iband.creator-memory'));
+   await routePage.getByRole('button',{name:'Create new movie'}).click();
+   await routePage.waitForFunction(previous=>{const x=document.querySelector('[aria-label="Verified native movie"]')?.textContent;return x?.startsWith('movie-project-')&&x!==previous},created);
+   const routeFilm=await routeIdentity.textContent();assert.equal(await registry.countDocuments({projectId:routeFilm}),1);
+   await routePage.getByRole('button',{name:'Request native writing'}).click();
+   await routePage.getByText('Server writer admitted',{exact:true}).waitFor();
+   await routePage.getByLabel('Native creator message').fill('Browser owned Studio route conversation');
+   await routePage.getByRole('button',{name:'Settle native conversation'}).click();
+   await routeDisplay.getByText('creator: Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
+   assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
+   assert.equal((await projects.findOne({_id:routeFilm})).state.conversationMessages.length,2);
+   await routePage.reload();await routePage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   await routePage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+   await routePage.getByLabel('Restored conversation').getByText('creator: Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
+   assert.equal(await routePage.getByLabel('Verified native movie').textContent(),routeFilm);
+   assert.equal(await routePage.evaluate(()=>localStorage.getItem('iband.creator-memory')),bytes);
+   for(const path of ['/studio/selection-vault','/api/movie-mentor/projects','/studio/native-conversation-settle','/studio/native-conversation-recover'])assert.ok(requests.some(x=>x.endsWith(path)),path);
+   await routePage.evaluate(()=>{globalThis.__retainedNativeServices=globalThis.__nativeRouteSession.getServices();globalThis.__nativeSignOut()});
+   await routePage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   assert.equal(await routePage.getByLabel('Verified native movie').count(),0);
+   assert.equal(await routePage.evaluate(()=>globalThis.__nativeRouteSession.getServices()),null);
+   assert.equal(await routePage.evaluate(async()=> (await globalThis.__retainedNativeServices.resumeNativeConversation({projectId:'denied'})).ok),false);
+   assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
+   console.log('GREEN PHYSICAL_BROWSER_OWNED_NATIVE_STUDIO_ROUTE_CREATION_SETTLEMENT_RECOVERY_AUTH_DENIAL');
+   await routePage.close();
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
    console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
   }finally{if(browser)await browser.close();if(vite)vite.kill();for(const f of files)try{unlinkSync(f)}catch{}}

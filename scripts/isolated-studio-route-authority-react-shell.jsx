@@ -46,6 +46,7 @@ export default function StudioRouteAuthorityShell({
    onGenerate={onGenerate}
    applicationSecondFilm={services.applicationSecondFilm}
    studioServices={services.studioServices}
+   nativeApplicationServices={services}
    studioRecoveryServices={services.recoveryServices()}
  />;
 }
