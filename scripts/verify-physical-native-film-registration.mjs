@@ -138,7 +138,21 @@ try{
     return {strict,hash};
  }
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
- if(process.env.NATIVE_CANONICAL_RESTART_COURT){
+ if(process.env.NATIVE_POST_EXIT_READBACK){
+  const expected=JSON.parse(process.env.NATIVE_POST_EXIT_READBACK);
+  assert.notEqual(process.pid,expected.originalPid);
+  const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
+  const factory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>(await vaults.resolve({token})).vaultId,readLocalBytes:()=>'unchanged-local-bytes'});
+  const session=factory({getAuthToken:async()=>owner}),opened=await session.open();assert.equal(opened.ok,true);
+  const recovered=await opened.services.resumeNativeConversation({projectId:expected.projectId});
+  assert.equal(recovered.ok,true,JSON.stringify(recovered));
+  assert.equal(recovered.view.projectRevision,expected.revision);
+  assert.deepEqual(recovered.view.conversationMessages,expected.history);
+  assert.equal(recovered.view.writable,false);
+  assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts);
+  assert.equal((await mongoose.connection.db.collection('movie_mentor_inference_entitlement').findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits);
+  console.log('GREEN PHYSICAL_ORIGINAL_PROCESS_EXIT_CANONICAL_CONVERSATION_READBACK');
+ }else if(process.env.NATIVE_CANONICAL_RESTART_COURT){
   const expected=JSON.parse(process.env.NATIVE_CANONICAL_RESTART_COURT);
   const execution=createMovieMentorProductionInferenceExecutionComposition();
   assert.equal(execution.ready,true);
@@ -1035,6 +1049,14 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
        assert.equal(providerRequests.length,bypassCalls+20);
        assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+4);
        console.log('GREEN PHYSICAL_INDEPENDENT_SERVER_RECOVERY_ACCOUNTING_EXACTLY_ONCE');
+       // The outer supervisor will verify the original process has exited
+       // and read the exact same committed conversation through a new server.
+       if(process.env.NATIVE_POST_EXIT_MANIFEST){
+        writeFileSync(process.env.NATIVE_POST_EXIT_MANIFEST,JSON.stringify({
+         projectId:routeFilm,revision:afterRestart.revision,history:afterRestart.state.conversationMessages,
+         receipts:bypassReceipts+4,consumedUnits:bypassBalance.consumedUnits+4,originalPid:process.pid
+        }));
+       }
       }finally{await Promise.all(peers.map(page=>page.close()));}
 
      }finally{await restarted.close();}
@@ -1120,8 +1142,16 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_ATOMIC_CONVERSATION_SETTLEMENT_AND_REPLAY');
  console.log('GREEN PHYSICAL_NATIVE_TWO_FILM_FRESH_PROCESS_DURABLE_READBACK');
  await new Promise(r=>server.close(r));server=null;
- const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)},encoding:'utf8',timeout:180000});
- process.stdout.write(restarted.stdout||'');process.stderr.write(restarted.stderr||'');assert.equal(restarted.status,0,restarted.error?.message||restarted.stderr);
+ const manifest='./native-post-exit-'+randomUUID()+'.json';
+ const recoveryEnv={...process.env,NATIVE_RECOVERY_PUBLIC_KEY:publicKey.export({type:'spki',format:'pem'}),NATIVE_RECOVERY_OWNER_ID:ownerId,NATIVE_RECOVERY_OWNER_TOKEN:owner,NATIVE_RECOVERY_FOREIGN_TOKEN:foreign,EXPECTED_CONVERSATIONS:JSON.stringify(inputs)};
+ try{
+  const restarted=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,NATIVE_POST_EXIT_MANIFEST:manifest},encoding:'utf8',timeout:180000});
+  process.stdout.write(restarted.stdout||'');process.stderr.write(restarted.stderr||'');assert.equal(restarted.status,0,restarted.error?.message||restarted.stderr);
+  const expected=JSON.parse(readFileSync(manifest,'utf8'));
+  assert.equal(restarted.pid,expected.originalPid);
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,NATIVE_POST_EXIT_READBACK:JSON.stringify(expected)},encoding:'utf8',timeout:30000});
+  process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
+ }finally{try{unlinkSync(manifest)}catch{}}
  console.log('HELD NATIVE_COCKPIT_EDITING_AND_REAL_ROUTE_SESSION_ADOPTION');
  }
 }finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}
