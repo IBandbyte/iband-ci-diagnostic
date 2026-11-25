@@ -4,7 +4,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {validateConversationSettlement} from './isolated-conversation-settlement-contract.mjs';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts}={}){
+export function createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts,verifyMentorExecution=null}={}){
  if(!client||!gate||!projects||!receipts)throw Error('physical-settlement-dependencies-required');
  async function save({token,projectId,operationId,fence,expectedRevision,scene}={}){
   const ownerId=gate.authenticateOwner(token);
@@ -75,6 +75,7 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
   let valid;try{valid=validateConversationSettlement(input)}catch{return {ok:false}}
   if(!ownerId||typeof selectionVaultId!=='string'||!fence||!valid.operationId.includes(':'))return {ok:false};
   const {projectId,operationId,creatorTurnId,expectedRevision,creatorMessage,mentorMessage}=valid;
+  if(verifyMentorExecution!==null){try{if(await verifyMentorExecution({ownerId,projectId,creatorTurnId,creatorMessage,mentorMessage,expectedRevision,fence})!==true)return {ok:false};}catch{return {ok:false};}}
   const admissionId=operationId.split(':')[0],session=client.startSession();
   try{return await session.withTransaction(async()=>{
    const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false,'state.content.activeProjectId':projectId},{session});
