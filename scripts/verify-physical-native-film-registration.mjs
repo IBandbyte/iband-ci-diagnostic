@@ -716,6 +716,8 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
      const beforeReceipts=await receipts.countDocuments({projectId:routeFilm});
      await entitlements.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
      let observed,release,signal;
+     const initiationAttempts=[],settlementAttempts=[];
+     let lostExecutionAck=false,lostSettlementAck=false;
      const observedRequest=new Promise(resolve=>{signal=resolve});
      const released=new Promise(resolve=>{release=resolve});
      await canonicalPage.route('**/native-authority/**',async route=>{
@@ -724,6 +726,25 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
        observed={path,body:request.postDataJSON()};
        signal();await released;
        if(path!=='/studio/native-execution-initiate'){await route.abort();return;}
+      }
+      if(path==='/studio/native-execution-initiate'){
+       initiationAttempts.push(request.postDataJSON());
+       if(!lostExecutionAck){
+        const result=await route.fetch();assert.equal(result.ok(),true);
+        const body=await result.json();assert.equal(body.ok,true,JSON.stringify(body));
+        assert.equal(providerRequests.length,beforeCalls+5);
+        assert.deepEqual(await projects.findOne({_id:routeFilm}),beforeBrowser);
+        lostExecutionAck=true;await route.abort('failed');return;
+       }
+      }
+      if(path==='/studio/strict-conversation-settle'){
+       settlementAttempts.push(request.postDataJSON());
+       if(!lostSettlementAck){
+        const result=await route.fetch();assert.equal(result.ok(),true);
+        const body=await result.json();assert.equal(body.ok,true,JSON.stringify(body));
+        assert.equal(await receipts.countDocuments({projectId:routeFilm}),beforeReceipts+1);
+        lostSettlementAck=true;await route.abort('failed');return;
+       }
       }
       await route.continue();
      });
@@ -750,6 +771,13 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
       console.log('GREEN PHYSICAL_NATIVE_EXECUTION_INITIATION_PRE_DISPATCH_DENIAL');
      }finally{release();}
      await transcript.getByText(browserMessage,{exact:true}).waitFor({timeout:20000});
+     assert.equal(lostExecutionAck,true);assert.equal(lostSettlementAck,true);
+     assert.equal(initiationAttempts.length,2);
+     assert.deepEqual(initiationAttempts[0],initiationAttempts[1]);
+     assert.equal(settlementAttempts.length,1);
+     assert.equal(settlementAttempts[0].creatorTurnId,observed.body.creatorTurnId);
+     assert.equal(settlementAttempts[0].operationId,observed.body.operationId);
+     console.log('GREEN PHYSICAL_BROWSER_EXECUTION_AND_SETTLEMENT_ACK_LOSS_SAME_TURN_RECOVERY');
      const browserExecution=await authorityDb.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:routeFilm,creatorTurnId:observed.body.creatorTurnId,phase:'settled'});
      assert.ok(browserExecution);
      const browserResult=await execution.authority.readCanonicalResult({executionId:browserExecution.executionId});
