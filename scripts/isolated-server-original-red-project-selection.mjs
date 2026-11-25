@@ -50,6 +50,16 @@ export function createServerProjectSelectionAuthority({gate,db,client,beforeSele
      nextState={...nextState,durablePublicationOutbox:[...current.state.durablePublicationOutbox,entry]};
      await gate.ledger.insertOne({projectId,ownerId,ownershipRevision:current.ownershipRevision,revision,operationId:'selection:'+operationId,entry,stateDigest:digest(nextState),fullOutboxDigest:digest(nextState.durablePublicationOutbox)},{session});
     }
+    if(nativeChain&&current.state.content.activeProjectId&&current.state.content.activeProjectId!==nextActiveProjectId){
+     const previous=current.state.content.activeProjectId;
+     const writer=await states.findOne({projectId:previous,ownerId,revoked:false,activeWriterFence:{$exists:true}},{session});
+     if(writer){
+      const retired=await states.updateOne({_id:writer._id,activeWriterFence:writer.activeWriterFence,revoked:false},{$unset:{activeWriterFence:'',activeAdoptionGrant:''}},{session});
+      if(retired.modifiedCount!==1)throw Error('native-writer-retirement-conflict');
+      const admission=await gate.admissions.updateOne({projectId:previous,ownerId,fence:writer.activeWriterFence,status:'admitted'},{$set:{status:'retired'}},{session});
+      if(admission.modifiedCount!==1)throw Error('native-admission-retirement-conflict');
+     }
+    }
     await beforeSelectionCommit({projectId,operationId});
     const changed=await states.updateOne({projectId,ownerId,revision:expectedRevision,revoked:false,ownershipRevision:current.ownershipRevision,activeAdoptionGrant:{$exists:false}},
       {$set:{revision:expectedRevision+1,state:nextState}},{session});

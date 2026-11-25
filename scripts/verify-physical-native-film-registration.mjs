@@ -66,6 +66,10 @@ try{
   if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>hash(r.entry)!==hash(outbox[i]))||records.at(-1).stateDigest!==hash(canonical.state)||records.at(-1).fullOutboxDigest!==hash(outbox))return res.json({ok:false});
   return res.json({ok:true,projectId:p._id,revision:p.revision,state:p.state});
  });
+ app.post('/studio/publication-grant',async(req,res)=>res.json(await provenance.issue({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/admit-publication',async(req,res)=>res.json(await gate.admit({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/read-admission',async(req,res)=>res.json(await gate.readAdmission({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-settle',async(req,res)=>res.json(await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
  if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
@@ -105,14 +109,16 @@ try{
   const [nativeProject,setNativeProject]=useState(null);
   const [nativeBusy,setNativeBusy]=useState(false);
   const [nativeError,setNativeError]=useState("");
+  const [nativeWritable,setNativeWritable]=useState(false);
+  const [nativeText,setNativeText]=useState("");
   const recoverNative=async(action,target)=>{
     const epoch=++nativeEpoch.current;
-    setNativeBusy(true);setNativeError("");setMovieMessages([]);setNativeProject(null);
+    setNativeBusy(true);setNativeError("");setMovieMessages([]);setNativeProject(null);setNativeWritable(false);
     try{
       const result=await nativeMovieService.run(action,target);
       if(epoch!==nativeEpoch.current)return;
-      if(!result?.ok||result.view?.writable!==false||result.view?.mode!=="read-only"||!Array.isArray(result.view.conversationMessages))throw Error("native recovery denied");
-      setNativeProject(result.view.projectId);setMovieMessages(result.view.conversationMessages);
+      if(!result?.ok||!["read-only","server-editable"].includes(result.view?.mode)||!Array.isArray(result.view.conversationMessages))throw Error("native recovery denied");
+      setNativeProject(result.view.projectId);setMovieMessages(result.view.conversationMessages);setNativeWritable(result.view.writable===true&&result.view.serverOwned===true);
       if(action==="create")nativePending.current=null;
     }catch{if(epoch===nativeEpoch.current)setNativeError("Movie recovery unavailable");}
     finally{if(epoch===nativeEpoch.current)setNativeBusy(false);}
@@ -135,11 +141,14 @@ try{
    exact(render,`  if(nativeMovieService)return <main style={styles.workspace}>
     <h1>AI Movie Making</h1>
     <section aria-label="Recover an existing Movie Mentor project">
-      <input aria-label="Existing movie project ID" value={recoveryProjectId} onChange={e=>{nativeEpoch.current++;setNativeBusy(false);setNativeProject(null);setMovieMessages([]);setRecoveryProjectId(e.target.value);}}/>
+      <input aria-label="Existing movie project ID" value={recoveryProjectId} onChange={e=>{nativeEpoch.current++;setNativeBusy(false);setNativeProject(null);setMovieMessages([]);setNativeWritable(false);setRecoveryProjectId(e.target.value);}}/>
       <button type="button" disabled={nativeBusy} onClick={()=>void recoverNative("choose",recoveryProjectId.trim())}>Recover server-authorised film</button>
       <button type="button" disabled={nativeBusy} onClick={createNative}>Create new movie</button>
       <output aria-label="Verified native movie">{nativeProject||"none"}</output>
-      <p>Read-only recovery. Editing remains blocked.</p>
+      <p>{nativeWritable?"Server writer admitted":"Read-only recovery. Editing remains blocked."}</p>
+      <button type="button" disabled={nativeBusy||!nativeProject||nativeWritable} onClick={()=>void recoverNative("admit")}>Request native writing</button>
+      <input aria-label="Native creator message" disabled={!nativeWritable||nativeBusy} value={nativeText} onChange={e=>setNativeText(e.target.value)}/>
+      <button type="button" disabled={!nativeWritable||nativeBusy||!nativeText.trim()} onClick={()=>{const id=globalThis.crypto.randomUUID();void recoverNative("submit",{creatorMessage:{id,role:"creator",text:nativeText},mentorMessage:{id:globalThis.crypto.randomUUID(),role:"mentor",text:"Diagnostic mentor response",metadata:{backendMetadata:{creatorTurnId:id}}}});}}>Settle native conversation</button>
       {nativeError&&<p role="alert">{nativeError}</p>}
       <ol aria-label="Restored conversation">{movieMessages.map((m,i)=><li key={m.id||i}>{m.role}: {m.text}</li>)}</ol>
     </section>
@@ -160,6 +169,8 @@ try{
    await page.exposeFunction('nativeMovieRun',async(action,target)=>{
     if(action==='resume'||!browserSession){browserSession?.invalidate();browserSession=factory({getAuthToken:async()=>owner});const r=await browserSession.open();if(!r.ok)return r}
     const app=browserSession.getServices();if(!app)return {ok:false};
+    if(action==='admit')return app.applicationSecondFilm.requestEditing({token:owner,selectionVaultId:vaultId,operationId:'browser-admit-'+randomUUID()});
+    if(action==='submit')return app.submitNativeConversation(target);
     if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-create-'+target});
     const current=await selection.read({token:owner,projectId:vaultId});
     const id=action==='resume'?current.activeProjectId:target;
@@ -181,10 +192,28 @@ try{
    const created=await identity.textContent();assert.match(created,/^movie-project-/);assert.notEqual(created,first.projectId);assert.notEqual(created,second.projectId);assert.equal(await display.textContent(),'');
    assert.equal(await registry.countDocuments({projectId:created}),1);
    await page.reload();await poll(identity,created);assert.equal(await display.textContent(),'');
+   await page.getByRole('button',{name:'Request native writing'}).click();
+   await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   await page.getByLabel('Native creator message').fill('Native browser conversation');
+   await page.getByRole('button',{name:'Settle native conversation'}).click();
+   await poll(display,'Native browser conversation');await poll(display,'Diagnostic mentor response');
+   const browserReceipt=await receipts.findOne({projectId:created});assert.ok(browserReceipt?.commitId);
+   assert.equal(await receipts.countDocuments({projectId:created}),1);
+   await page.reload();await poll(identity,created);await poll(display,'Native browser conversation');
    await page.getByLabel('Existing movie project ID').fill(first.projectId);
    await page.getByRole('button',{name:'Recover server-authorised film'}).click();await poll(identity,first.projectId);await poll(display,first.mentorMessage.text);
    assert.ok(!(await display.textContent()).includes(second.creatorMessage.text));
+   const retired=await gate.admissions.findOne({projectId:created,fence:browserReceipt.fence});assert.equal(retired.status,'retired');
+   await page.getByLabel('Existing movie project ID').fill(created);
+   await page.getByRole('button',{name:'Recover server-authorised film'}).click();await poll(identity,created);await poll(display,'Native browser conversation');
+   const oldWrite={projectId:created,selectionVaultId:vaultId,operationId:browserReceipt.admissionId+':stale',creatorTurnId:'stale',expectedRevision:2,fence:browserReceipt.fence,creatorMessage:{id:'stale',role:'creator',text:'stale'},mentorMessage:{id:'stale-mentor',role:'mentor',text:'stale',metadata:{backendMetadata:{creatorTurnId:'stale'}}}};
+   assert.equal((await transport({path:'/studio/native-conversation-settle',token:owner,body:oldWrite})).ok,false);
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   await page.getByLabel('Native creator message').fill('Renewed native conversation');
+   await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'Renewed native conversation');
+   assert.equal(await receipts.countDocuments({projectId:created}),2);
    browserSession?.invalidate();
+   console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
    console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
   }finally{if(browser)await browser.close();if(vite)vite.kill();for(const f of files)try{unlinkSync(f)}catch{}}
   session.invalidate();assert.equal(session.getServices(),null);

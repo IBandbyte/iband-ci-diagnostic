@@ -87,6 +87,25 @@ export function createApplicationOwnedStudioServices({
    return {ok:true,projectId,view:recovered.view};
   }catch{return {ok:false,reason:'native-creation-outcome-unverified'}}finally{creating=false}
  }
+ let submitting=false;
+ async function submitNativeConversation({creatorMessage,mentorMessage}={}){
+  const admitted=editable.getSnapshot(),selected=selection.getSnapshot();
+  if(submitting||!admitted?.writable||selected?.activeProjectId!==admitted.projectId||selected.revision!==admitted.selectionRevision||!creatorMessage?.id)return {ok:false,reason:'native-writer-required'};
+  submitting=true;
+  const projectId=admitted.projectId,operationId=admitted.operationId+':'+creatorMessage.id;
+  const current=()=>{const e=editable.getSnapshot(),s=selection.getSnapshot();return e?.fence===admitted.fence&&s?.activeProjectId===projectId&&s.revision===admitted.selectionRevision};
+  try{
+   const token=snapshotToken();
+   const body={token,projectId,selectionVaultId,operationId,creatorTurnId:creatorMessage.id,expectedRevision:admitted.revision,fence:admitted.fence,creatorMessage,mentorMessage};
+   const settled=await execute('/studio/native-conversation-settle',body);
+   if(!current()||settled?.ok!==true||settled.projectId!==projectId||settled.operationId!==operationId||settled.creatorTurnId!==creatorMessage.id||settled.committedRevision!==admitted.revision+1||!settled.serverCommitId)return {ok:false,reason:'settlement-unverified'};
+   const receipt=await execute('/studio/native-conversation-receipt',{token,projectId,operationId});
+   if(!current()||receipt?.ok!==true||receipt.projectId!==projectId||receipt.operationId!==operationId||receipt.creatorTurnId!==creatorMessage.id||receipt.committedRevision!==settled.committedRevision||receipt.serverCommitId!==settled.serverCommitId)return {ok:false,reason:'receipt-unverified'};
+   const recovered=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
+   if(!recovered.ok||recovered.view?.projectRevision!==receipt.committedRevision||!Array.isArray(recovered.view.conversationMessages)||JSON.stringify(recovered.view.conversationMessages.slice(-2))!==JSON.stringify([creatorMessage,mentorMessage]))return {ok:false,reason:'conversation-readback-unverified'};
+   return {ok:true,view:recovered.view,receipt};
+  }catch{return {ok:false,reason:'native-settlement-outcome-unverified'}}finally{submitting=false}
+ }
  const studioServices={
   editable,selection,
   request:(path,body)=>execute(path,body),
@@ -100,7 +119,7 @@ export function createApplicationOwnedStudioServices({
   creationEpoch++;pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
  };
  return Object.freeze({
-  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,
+  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,
   getSelection:()=>selection.getSnapshot(),getContinuity:()=>continuity.getSnapshot(),
   invalidate
  });

@@ -108,5 +108,18 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
   catch(e){if(e?.code===11000||e?.code===112||e?.hasErrorLabel?.('TransientTransactionError'))return {ok:false};throw e}
   finally{await session.endSession()}
  }
- return Object.freeze({save,readCommitted,settleConversation});
+ async function readConversationReceipt({token,projectId,operationId}={}){
+  const ownerId=gate.authenticateOwner(token);if(!ownerId)return {ok:false};
+  const prior=await receipts.findOne({projectId,operationId,ownerId});
+  if(!prior?.creatorTurnId)return {ok:false};
+  const canonical=await gate.states.findOne({projectId,ownerId,revoked:false});
+  const project=await projects.findOne({_id:projectId,ownerId});
+  if(!canonical||!project||canonical.revision!==project.revision||canonical.revision<prior.revision||digest(canonical.state.content)!==digest(project.state))return {ok:false};
+  const records=await gate.ledger.find({projectId,ownerId,ownershipRevision:canonical.ownershipRevision}).sort({revision:1}).toArray();
+  const outbox=canonical.state.durablePublicationOutbox;
+  if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>digest(r.entry)!==digest(outbox[i]))||records.at(-1).stateDigest!==digest(canonical.state)||records.at(-1).fullOutboxDigest!==digest(outbox))return {ok:false};
+  if(!records.some(r=>r.operationId===operationId&&r.revision===prior.revision))return {ok:false};
+  return {ok:true,projectId,operationId,creatorTurnId:prior.creatorTurnId,committedRevision:prior.revision,serverCommitId:prior.commitId};
+ }
+ return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt});
 }
