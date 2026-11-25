@@ -157,6 +157,12 @@ try{
   assert.equal(recovered.view.conversationMessages.at(-2).text,expected.text);
   assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+1);
   console.log('GREEN PHYSICAL_INDEPENDENT_SERVER_CANONICAL_UNPUBLISHED_RECOVERY');
+  const repeated=await opened.services.resumeNativeConversation({projectId:expected.projectId});
+  assert.equal(repeated.ok,true,JSON.stringify(repeated));
+  assert.deepEqual(repeated.view.conversationMessages,recovered.view.conversationMessages);
+  assert.equal(repeated.view.projectRevision,recovered.view.projectRevision);
+  assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+1);
+  console.log('GREEN PHYSICAL_STOPPED_SERVER_CANONICAL_RECOVERY_REPEAT_READBACK');
  }else if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
   const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
   const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
@@ -1004,8 +1010,15 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
        assert.equal(providerRequests.length,bypassCalls+20);
        assert.equal(await receipts.countDocuments({projectId:routeFilm}),bypassReceipts+3);
        await restartPage.close();
+       // Stop both original HTTP listeners before the fresh process begins.
+       const originalPort=server.address().port,originalExecutionPort=executionServer.address().port;
+       await new Promise((resolve,reject)=>server.close(e=>e?reject(e):resolve()));server=null;
+       await new Promise((resolve,reject)=>executionServer.close(e=>e?reject(e):resolve()));executionServer=null;
+       for(const port of [originalPort,originalExecutionPort]){
+        await assert.rejects(fetch('http://127.0.0.1:'+port+'/studio/read',{method:'POST'}));
+       }
+       console.log('GREEN PHYSICAL_ORIGINAL_CANONICAL_HTTP_SERVERS_STOPPED');
        // A new OS process composes its own HTTP server and connects to the same disposable database.
-       // The original server does not participate in its recovery request.
        const expectedRestart={projectId:routeFilm,revision:concurrentProject.revision,history:concurrentProject.state.conversationMessages,creatorTurnId:restartIntent.creatorTurnId,text:restartText,receipts:bypassReceipts+3};
        const child=await new Promise((resolve,reject)=>{
         const p=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_CANONICAL_RESTART_COURT:JSON.stringify(expectedRestart)},stdio:['ignore','pipe','pipe']});
