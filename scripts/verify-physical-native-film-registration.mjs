@@ -10,6 +10,8 @@ import {createMovieMentorProductionInferenceExecutionComposition} from './ai/Mov
 import {createMovieMentorInferenceSettlementMongoStore} from './ai/MovieMentorInferenceSettlementMongoStore.js';
 import {createMovieMentorInferenceSettlementReconciliationAuthority} from './ai/MovieMentorInferenceSettlementReconciliationAuthority.js';
 import {buildRequestDigest} from './ai/MovieMentorTurnRuntime.js';
+import {MOVIE_MENTOR_INFERENCE_EXECUTION_REQUIRED_UNIQUE_INDEXES as EXECUTION_REQUIRED} from './ai/MovieMentorInferenceExecutionPhysicalAuthority.js';
+import {MOVIE_MENTOR_INFERENCE_SETTLEMENT_REQUIRED_UNIQUE_INDEXES as SETTLEMENT_REQUIRED} from './ai/MovieMentorInferenceSettlementPhysicalAuthority.js';
 import {createPhysicalProvenanceFencedSceneSettlement} from './isolated-physical-provenance-fenced-scene-settlement.mjs';
 import {spawnSync,spawn} from 'node:child_process';
 import {readFileSync,writeFileSync,unlinkSync} from 'node:fs';
@@ -568,6 +570,14 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    process.env.IBAND_AI_BASE_URL='http://127.0.0.1:'+providerServer.address().port+'/v1/responses';
    let executionServer;
    try{
+    // Provision the pinned backend's physical authority contracts in the disposable Mongo database.
+    const authorityDb=mongoose.connection.db;
+    assert.match(uri,/^mongodb:\/\/127\.0\.0\.1:27017\//);
+    for(const requirement of [...EXECUTION_REQUIRED,...SETTLEMENT_REQUIRED])await authorityDb.collection(requirement.collection).createIndex(requirement.key,{unique:true});
+    await authorityDb.collection('movie_mentor_provider_operation_reality').createIndex({providerCallId:1},{unique:true});
+    await authorityDb.collection('movie_mentor_result_candidate').createIndex({candidateReference:1},{unique:true});
+    for(const key of [{resultReference:1},{candidateReference:1},{executionId:1},{principalId:1,projectId:1,creatorTurnId:1},{reservationId:1}])await authorityDb.collection('movie_mentor_canonical_result').createIndex(key,{unique:true});
+    await authorityDb.collection('movie_mentor_creator_state').createIndex({projectId:1},{unique:true,partialFilterExpression:{projectId:{$type:'string'}}});
     const spend=createMovieMentorProductionInferenceSpendComposition(),execution=createMovieMentorProductionInferenceExecutionComposition();
     assert.equal(spend.ready,true);assert.equal(execution.ready,true);
     const accounting=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
