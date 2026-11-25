@@ -100,6 +100,147 @@ try{
   if(dropNextConversationAck&&result.ok&&!result.replay){dropNextConversationAck=false;droppedAcks++;res.socket.destroy();return;}
   return res.json(result);
  });
+ async function startIsolatedProvider(){
+   process.env.IBAND_AI_PROVIDER='openai';
+   process.env.IBAND_AI_MODEL='gpt-isolated';
+   process.env.IBAND_AI_API_KEY='isolated-only';
+ const providerRequests=[];
+ const providerServer=http.createServer(async(req,res)=>{
+  let body="";for await(const chunk of req)body+=chunk;
+  providerRequests.push({path:req.url,method:req.method,idempotencyKey:req.headers["idempotency-key"]||null});
+  let requestBody;
+  try{requestBody=JSON.parse(body);}catch{
+   res.writeHead(400,{"content-type":"application/json"});
+   res.end(JSON.stringify({error:{message:"Invalid isolated provider JSON"}}));
+   return;
+  }
+  const schema=requestBody?.text?.format?.schema;
+  console.log("PHYSICAL POSITIVE PROVIDER SCHEMA: "+JSON.stringify({
+   schemaName:requestBody?.text?.format?.name||null,
+   topLevelRequired:Array.isArray(schema?.required)?schema.required:[],
+   topLevelProperties:Object.keys(schema?.properties||{}),
+   propertyContracts:Object.fromEntries(Object.entries(schema?.properties||{}).map(([key,value])=>[key,{type:value?.type||null,required:value?.required||[],properties:Object.keys(value?.properties||{}),itemsType:value?.items?.type||null,itemRequired:value?.items?.required||[],itemProperties:Object.fromEntries(Object.entries(value?.items?.properties||{}).map(([k,v])=>[k,{type:v?.type||null,enum:v?.enum||null}])),nextActionRequired:value?.properties?.required||[],nextActionProperties:Object.fromEntries(Object.entries(value?.properties||{}).map(([k,v])=>[k,{type:v?.type||null,enum:v?.enum||null}])),enum:value?.enum||null}])),
+   model:requestBody?.model||null
+  }));
+  if(requestBody?.text?.format?.name==="movie_journey_intelligence"){
+   const semantic={
+    understoodContext:[{key:"creator.intent",value:"isolated positive creator turn",evidence:"isolated positive creator turn",confidenceSource:"creator-explicit"}],
+    provisionalContext:[],unresolvedContext:[],clarificationNeeded:[],readyToAdvance:true,
+    recommendedStageId:null,recommendedTaskId:null,nextAction:null,resumeNote:null
+   };
+   res.writeHead(200,{"content-type":"application/json"});
+   res.end(JSON.stringify({id:"isolated-semantic-response-1",model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(semantic)}]}]}));
+   return;
+  }
+  const schemaName=requestBody?.text?.format?.name||"";
+  if(["movie_mentor_story_contribution","movie_mentor_character_contribution","movie_mentor_continuity_contribution"].includes(schemaName)){
+   const requiredAgent=schema?.properties?.agentId?.enum?.[0];
+   const fixture={
+    agentId:requiredAgent,
+    confidence:0.9,
+    provenance:{source:"isolated-local-provider",model:"gpt-isolated",contractVersion:"1"},
+   };
+   for(const field of schema?.required||[]){
+    if(field in fixture)continue;
+    const property=schema?.properties?.[field];
+    if(property?.type==="array")fixture[field]=[];
+    else if(property?.type==="boolean")fixture[field]=false;
+    else if(property?.type==="number")fixture[field]=0.9;
+    else if(property?.type==="string")fixture[field]=property?.enum?.[0]||"isolated";
+    else if(property?.type==="object")fixture[field]={};
+    else fixture[field]=null;
+   }
+   const responseId="isolated-"+schemaName+"-"+providerRequests.length;
+   res.writeHead(200,{"content-type":"application/json"});
+   res.end(JSON.stringify({id:responseId,model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(fixture)}]}]}));
+   return;
+  }
+  if(schemaName==="movie_mentor_synthesis"){
+   const synthesis={
+    text:"I understand your isolated creator request. What would you like to develop next?",
+    usedContributionAgentIds:["story","character","continuity"],
+    deferredContributionAgentIds:[],
+    continuationObedienceClaims:[],
+    conflictsHandled:[],
+    confidence:0.9,
+    provenance:{source:"isolated-local-provider",model:"gpt-isolated",contractVersion:"1"}
+   };
+   res.writeHead(200,{"content-type":"application/json"});
+   res.end(JSON.stringify({id:"isolated-synthesis-response-1",model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(synthesis)}]}]}));
+   return;
+  }
+  res.writeHead(503,{"content-type":"application/json"});
+  res.end(JSON.stringify({error:{message:"Unimplemented isolated provider stage: "+String(requestBody?.text?.format?.name||"unknown"),type:"isolated_fixture_pending"}}));
+ });
+
+   await new Promise(resolve=>providerServer.listen(0,'127.0.0.1',resolve));
+   process.env.IBAND_AI_BASE_URL='http://127.0.0.1:'+providerServer.address().port+'/v1/responses';
+
+ return {providerServer,providerRequests};
+ }
+ async function composeCanonicalExecution(){
+    const spend=createMovieMentorProductionInferenceSpendComposition(),execution=createMovieMentorProductionInferenceExecutionComposition();
+    assert.equal(spend.ready,true);assert.equal(execution.ready,true);
+    const accounting=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
+    const requestAuthority=createMovieMentorCreatorRequestAuthority({expectedIssuer:issuer,expectedAudience:audience,ownershipAuthority,verifyCredential:async({credential})=>{
+     const subject=authenticate(credential);if(!subject)throw Error('invalid token');
+     return {verified:true,subject,issuer,audience,verificationMethod:'RS256-test',verificationVersion:'1',authenticatedAt:new Date(now*1000),expiresAt:new Date((now+600)*1000),active:true,revoked:false};
+    }});
+    const executionApp=express();executionApp.use(express.json());
+    executionApp.use('/api/movie-mentor',createMovieMentorTurnRouter({requestAuthority,inferenceSpendAuthority:spend.authority,inferenceExecutionAuthority:execution.authority,inferenceSettlementAuthority:accounting}));
+    const {strict,hash}=composeCanonicalRecovery(execution,accounting);
+    executionApp.post('/studio/strict-conversation-settle',async(req,res)=>res.json(await strict.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+    const executionServer=executionApp.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{executionServer.once('listening',resolve);executionServer.once('error',reject)});
+    const call=async(path,body,token=owner)=>{const response=await fetch('http://127.0.0.1:'+executionServer.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}};
+
+ return {strict,hash,call,server:executionServer};
+ }
+ async function registerCanonicalSubmission(strict,call){
+    const strictBindings=db.collection('native_execution_initiation_bindings');
+    await strictBindings.createIndex({ownerId:1,projectId:1,creatorTurnId:1},{unique:true});
+    await strictBindings.createIndex({ownerId:1,projectId:1,fence:1},{unique:true});
+    app.post('/studio/native-execution-initiate',async(req,res)=>{
+     const token=req.get('authorization')?.replace(/^Bearer /,''),subject=authenticate(token);
+     const {projectId,selectionVaultId,operationId,creatorTurnId,expectedRevision,fence,creatorMessage,requestDigest}=req.body||{};
+     const deny=()=>res.json({ok:false});
+     if(!subject||typeof projectId!=='string'||typeof selectionVaultId!=='string'||typeof operationId!=='string'||typeof fence!=='string'||!Number.isSafeInteger(expectedRevision)||typeof creatorTurnId!=='string'||creatorMessage?.id!==creatorTurnId||creatorMessage.role!=='creator'||typeof creatorMessage.text!=='string'||!creatorMessage.text.trim()||creatorMessage.text!==creatorMessage.text.trim()||Object.hasOwn(req.body,'mentorMessage'))return deny();
+     const digest=buildRequestDigest({creatorMessage:creatorMessage.text,projectId,options:{}});
+     if(requestDigest!==digest)return deny();
+     const ownership=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:subject},projectId});
+     if(ownership?.authorized!==true)return deny();
+     const session=client.startSession();
+     let bound;
+     try{bound=await session.withTransaction(async()=>{
+      const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId:subject,revoked:false,'state.content.activeProjectId':projectId},{session});
+      const writer=await gate.admissions.findOne({projectId,ownerId:subject,fence,status:'admitted',revision:expectedRevision},{session});
+      if(!vault||!writer||operationId!==writer.operationId+':'+creatorTurnId)return false;
+      const state=await gate.states.findOne({projectId,ownerId:subject,revoked:false,revision:expectedRevision,ownershipRevision:writer.ownershipRevision,activeWriterFence:fence,activeAdoptionGrant:writer.grantId},{session});
+      if(!state||state.strictCanonicalConversation!==true)return false;
+      const identity={ownerId:subject,projectId,creatorTurnId};
+      const binding={...identity,selectionVaultId,operationId,expectedRevision,fence,requestDigest:digest};
+      const prior=await strictBindings.findOne(identity,{session});
+      if(prior&&Object.entries(binding).some(([k,val])=>prior[k]!==val))return false;
+      const lock=await gate.states.updateOne({_id:vault._id,revision:vault.revision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{nativeExecutionInitiationFence:1}},{session});
+      const writerLock=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$inc:{nativeExecutionInitiationFence:1},$set:{nativeExecutionBoundWriterFence:fence}},{session});
+      if(lock.modifiedCount!==1||writerLock.modifiedCount!==1)throw Error('native-initiation-race');
+      if(!prior)await strictBindings.insertOne({...binding,creatorText:creatorMessage.text},{session});
+      return true;
+     },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}catch{return deny()}finally{await session.endSession()}
+     if(!bound)return deny();
+     const response=await call('/api/movie-mentor/turn',{projectId,creatorTurnId,message:creatorMessage.text,options:{}},token);
+     if(response.status!==200||response.body?.success!==true||response.body.status!=='mentor-response-ready'||typeof response.body.text!=='string')return deny();
+     const mentorMessage={id:'mentor-'+creatorTurnId,role:'mentor',text:response.body.text,metadata:{backendMetadata:{creatorTurnId}}};
+     return res.json({ok:true,projectId,creatorTurnId,requestDigest:digest,mentorMessage});
+    });
+    app.post('/studio/strict-conversation-settle',async(req,res)=>{
+     const token=req.get('authorization')?.replace(/^Bearer /,''),subject=authenticate(token),body=req.body||{};
+     if(!subject)return res.json({ok:false});
+     const binding=await strictBindings.findOne({ownerId:subject,projectId:body.projectId,creatorTurnId:body.creatorTurnId,operationId:body.operationId,fence:body.fence,expectedRevision:body.expectedRevision,selectionVaultId:body.selectionVaultId});
+     if(!binding||binding.requestDigest!==buildRequestDigest({creatorMessage:body.creatorMessage?.text?.trim()||'',projectId:body.projectId,options:{}}))return res.json({ok:false});
+     return res.json(await strict.settleConversation({...body,token}));
+    });
+
+ }
  function composeCanonicalRecovery(execution,accounting){
     const authorityDb=mongoose.connection.db;
     const strictBindings=db.collection('native_execution_initiation_bindings');
@@ -188,6 +329,32 @@ try{
   if(expected.originalPid){
    assert.equal((await mongoose.connection.db.collection('movie_mentor_inference_entitlement').findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits);
    console.log('GREEN PHYSICAL_UNPUBLISHED_CANONICAL_RECOVERY_AFTER_ORIGINAL_PROCESS_EXIT');
+   const {providerServer,providerRequests}=await startIsolatedProvider();
+   let freshExecutionServer;
+   try{
+    const composed=await composeCanonicalExecution();freshExecutionServer=composed.server;
+    await registerCanonicalSubmission(composed.strict,composed.call);
+    const entitlement=mongoose.connection.db.collection('movie_mentor_inference_entitlement');
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+    const selectionVaultId=(await vaults.resolve({token:owner})).vaultId;
+    const admitted=await opened.services.applicationSecondFilm.requestEditing({token:owner,selectionVaultId,operationId:'post-restart-continuation-'+randomUUID()});
+    assert.equal(admitted.ok,true,JSON.stringify(admitted));
+    const creatorMessage={id:randomUUID(),role:'creator',text:'Continue the recovered movie '+randomUUID()};
+    const continued=await opened.services.submitNativeConversation({creatorMessage},{canonical:true});
+    assert.equal(continued.ok,true,JSON.stringify(continued));
+    assert.equal(continued.view.projectRevision,expected.revision+2);
+    assert.deepEqual(continued.view.conversationMessages.slice(0,-2),recovered.view.conversationMessages);
+    assert.deepEqual(continued.view.conversationMessages.at(-2),creatorMessage);
+    assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+2);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+1);
+    assert.equal(providerRequests.length,5);
+    const readback=await opened.services.resumeNativeConversation({projectId:expected.projectId});
+    assert.equal(readback.ok,true,JSON.stringify(readback));
+    assert.deepEqual(readback.view.conversationMessages,continued.view.conversationMessages);
+    assert.equal(readback.view.projectRevision,continued.view.projectRevision);
+    console.log('GREEN PHYSICAL_POST_RESTART_CANONICAL_SERVICE_CONTINUATION');
+   }finally{if(freshExecutionServer)await new Promise(r=>freshExecutionServer.close(r));await new Promise(r=>providerServer.close(r));}
+
   }
  }else if(process.env.NATIVE_RECOVERY_PUBLIC_KEY){
   const expected=JSON.parse(process.env.EXPECTED_CONVERSATIONS);
@@ -588,80 +755,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    // New strict court: invoke the genuine pinned HTTP gateway with a local
    // provider, then independently reread canonical execution and accounting.
    // Existing fixture-based courts above remain unchanged.
-   process.env.IBAND_AI_PROVIDER='openai';
-   process.env.IBAND_AI_MODEL='gpt-isolated';
-   process.env.IBAND_AI_API_KEY='isolated-only';
- const providerRequests=[];
- const providerServer=http.createServer(async(req,res)=>{
-  let body="";for await(const chunk of req)body+=chunk;
-  providerRequests.push({path:req.url,method:req.method,idempotencyKey:req.headers["idempotency-key"]||null});
-  let requestBody;
-  try{requestBody=JSON.parse(body);}catch{
-   res.writeHead(400,{"content-type":"application/json"});
-   res.end(JSON.stringify({error:{message:"Invalid isolated provider JSON"}}));
-   return;
-  }
-  const schema=requestBody?.text?.format?.schema;
-  console.log("PHYSICAL POSITIVE PROVIDER SCHEMA: "+JSON.stringify({
-   schemaName:requestBody?.text?.format?.name||null,
-   topLevelRequired:Array.isArray(schema?.required)?schema.required:[],
-   topLevelProperties:Object.keys(schema?.properties||{}),
-   propertyContracts:Object.fromEntries(Object.entries(schema?.properties||{}).map(([key,value])=>[key,{type:value?.type||null,required:value?.required||[],properties:Object.keys(value?.properties||{}),itemsType:value?.items?.type||null,itemRequired:value?.items?.required||[],itemProperties:Object.fromEntries(Object.entries(value?.items?.properties||{}).map(([k,v])=>[k,{type:v?.type||null,enum:v?.enum||null}])),nextActionRequired:value?.properties?.required||[],nextActionProperties:Object.fromEntries(Object.entries(value?.properties||{}).map(([k,v])=>[k,{type:v?.type||null,enum:v?.enum||null}])),enum:value?.enum||null}])),
-   model:requestBody?.model||null
-  }));
-  if(requestBody?.text?.format?.name==="movie_journey_intelligence"){
-   const semantic={
-    understoodContext:[{key:"creator.intent",value:"isolated positive creator turn",evidence:"isolated positive creator turn",confidenceSource:"creator-explicit"}],
-    provisionalContext:[],unresolvedContext:[],clarificationNeeded:[],readyToAdvance:true,
-    recommendedStageId:null,recommendedTaskId:null,nextAction:null,resumeNote:null
-   };
-   res.writeHead(200,{"content-type":"application/json"});
-   res.end(JSON.stringify({id:"isolated-semantic-response-1",model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(semantic)}]}]}));
-   return;
-  }
-  const schemaName=requestBody?.text?.format?.name||"";
-  if(["movie_mentor_story_contribution","movie_mentor_character_contribution","movie_mentor_continuity_contribution"].includes(schemaName)){
-   const requiredAgent=schema?.properties?.agentId?.enum?.[0];
-   const fixture={
-    agentId:requiredAgent,
-    confidence:0.9,
-    provenance:{source:"isolated-local-provider",model:"gpt-isolated",contractVersion:"1"},
-   };
-   for(const field of schema?.required||[]){
-    if(field in fixture)continue;
-    const property=schema?.properties?.[field];
-    if(property?.type==="array")fixture[field]=[];
-    else if(property?.type==="boolean")fixture[field]=false;
-    else if(property?.type==="number")fixture[field]=0.9;
-    else if(property?.type==="string")fixture[field]=property?.enum?.[0]||"isolated";
-    else if(property?.type==="object")fixture[field]={};
-    else fixture[field]=null;
-   }
-   const responseId="isolated-"+schemaName+"-"+providerRequests.length;
-   res.writeHead(200,{"content-type":"application/json"});
-   res.end(JSON.stringify({id:responseId,model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(fixture)}]}]}));
-   return;
-  }
-  if(schemaName==="movie_mentor_synthesis"){
-   const synthesis={
-    text:"I understand your isolated creator request. What would you like to develop next?",
-    usedContributionAgentIds:["story","character","continuity"],
-    deferredContributionAgentIds:[],
-    continuationObedienceClaims:[],
-    conflictsHandled:[],
-    confidence:0.9,
-    provenance:{source:"isolated-local-provider",model:"gpt-isolated",contractVersion:"1"}
-   };
-   res.writeHead(200,{"content-type":"application/json"});
-   res.end(JSON.stringify({id:"isolated-synthesis-response-1",model:"gpt-isolated",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify(synthesis)}]}]}));
-   return;
-  }
-  res.writeHead(503,{"content-type":"application/json"});
-  res.end(JSON.stringify({error:{message:"Unimplemented isolated provider stage: "+String(requestBody?.text?.format?.name||"unknown"),type:"isolated_fixture_pending"}}));
- });
-
-   await new Promise(resolve=>providerServer.listen(0,'127.0.0.1',resolve));
-   process.env.IBAND_AI_BASE_URL='http://127.0.0.1:'+providerServer.address().port+'/v1/responses';
+   const {providerServer,providerRequests}=await startIsolatedProvider();
    let executionServer;
    try{
     // Provision the pinned backend's physical authority contracts in the disposable Mongo database.
@@ -672,19 +766,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
     await authorityDb.collection('movie_mentor_result_candidate').createIndex({candidateReference:1},{unique:true});
     for(const key of [{resultReference:1},{candidateReference:1},{executionId:1},{principalId:1,projectId:1,creatorTurnId:1},{reservationId:1}])await authorityDb.collection('movie_mentor_canonical_result').createIndex(key,{unique:true});
     await authorityDb.collection('movie_mentor_creator_state').createIndex({projectId:1},{unique:true,partialFilterExpression:{projectId:{$type:'string'}}});
-    const spend=createMovieMentorProductionInferenceSpendComposition(),execution=createMovieMentorProductionInferenceExecutionComposition();
-    assert.equal(spend.ready,true);assert.equal(execution.ready,true);
-    const accounting=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
-    const requestAuthority=createMovieMentorCreatorRequestAuthority({expectedIssuer:issuer,expectedAudience:audience,ownershipAuthority,verifyCredential:async({credential})=>{
-     const subject=authenticate(credential);if(!subject)throw Error('invalid token');
-     return {verified:true,subject,issuer,audience,verificationMethod:'RS256-test',verificationVersion:'1',authenticatedAt:new Date(now*1000),expiresAt:new Date((now+600)*1000),active:true,revoked:false};
-    }});
-    const executionApp=express();executionApp.use(express.json());
-    executionApp.use('/api/movie-mentor',createMovieMentorTurnRouter({requestAuthority,inferenceSpendAuthority:spend.authority,inferenceExecutionAuthority:execution.authority,inferenceSettlementAuthority:accounting}));
-    const {strict,hash}=composeCanonicalRecovery(execution,accounting);
-    executionApp.post('/studio/strict-conversation-settle',async(req,res)=>res.json(await strict.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
-    executionServer=executionApp.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{executionServer.once('listening',resolve);executionServer.once('error',reject)});
-    const call=async(path,body,token=owner)=>{const response=await fetch('http://127.0.0.1:'+executionServer.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}};
+    const {strict,hash,call,server:composedServer}=await composeCanonicalExecution();executionServer=composedServer;
     const fresh=factory({getAuthToken:async()=>owner}),freshOpened=await fresh.open();assert.equal(freshOpened.ok,true);
     const service=freshOpened.services;
     assert.equal((await service.resumeNativeConversation({projectId:routeFilm})).ok,true);
@@ -733,49 +815,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
     // The legacy composer path must fail here, before it can publish a fabricated response.
     const policy=await gate.states.updateOne({projectId:routeFilm,ownerId,revoked:false,activeWriterFence:{$exists:false}},{$set:{strictCanonicalConversation:true}});
     assert.equal(policy.modifiedCount,1,'strict policy must be durable before any strict writer admission');
-    const strictBindings=db.collection('native_execution_initiation_bindings');
-    await strictBindings.createIndex({ownerId:1,projectId:1,creatorTurnId:1},{unique:true});
-    await strictBindings.createIndex({ownerId:1,projectId:1,fence:1},{unique:true});
-    app.post('/studio/native-execution-initiate',async(req,res)=>{
-     const token=req.get('authorization')?.replace(/^Bearer /,''),subject=authenticate(token);
-     const {projectId,selectionVaultId,operationId,creatorTurnId,expectedRevision,fence,creatorMessage,requestDigest}=req.body||{};
-     const deny=()=>res.json({ok:false});
-     if(!subject||typeof projectId!=='string'||typeof selectionVaultId!=='string'||typeof operationId!=='string'||typeof fence!=='string'||!Number.isSafeInteger(expectedRevision)||typeof creatorTurnId!=='string'||creatorMessage?.id!==creatorTurnId||creatorMessage.role!=='creator'||typeof creatorMessage.text!=='string'||!creatorMessage.text.trim()||creatorMessage.text!==creatorMessage.text.trim()||Object.hasOwn(req.body,'mentorMessage'))return deny();
-     const digest=buildRequestDigest({creatorMessage:creatorMessage.text,projectId,options:{}});
-     if(requestDigest!==digest)return deny();
-     const ownership=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:subject},projectId});
-     if(ownership?.authorized!==true)return deny();
-     const session=client.startSession();
-     let bound;
-     try{bound=await session.withTransaction(async()=>{
-      const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId:subject,revoked:false,'state.content.activeProjectId':projectId},{session});
-      const writer=await gate.admissions.findOne({projectId,ownerId:subject,fence,status:'admitted',revision:expectedRevision},{session});
-      if(!vault||!writer||operationId!==writer.operationId+':'+creatorTurnId)return false;
-      const state=await gate.states.findOne({projectId,ownerId:subject,revoked:false,revision:expectedRevision,ownershipRevision:writer.ownershipRevision,activeWriterFence:fence,activeAdoptionGrant:writer.grantId},{session});
-      if(!state||state.strictCanonicalConversation!==true)return false;
-      const identity={ownerId:subject,projectId,creatorTurnId};
-      const binding={...identity,selectionVaultId,operationId,expectedRevision,fence,requestDigest:digest};
-      const prior=await strictBindings.findOne(identity,{session});
-      if(prior&&Object.entries(binding).some(([k,val])=>prior[k]!==val))return false;
-      const lock=await gate.states.updateOne({_id:vault._id,revision:vault.revision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{nativeExecutionInitiationFence:1}},{session});
-      const writerLock=await gate.states.updateOne({_id:state._id,revision:expectedRevision,activeWriterFence:fence,revoked:false},{$inc:{nativeExecutionInitiationFence:1},$set:{nativeExecutionBoundWriterFence:fence}},{session});
-      if(lock.modifiedCount!==1||writerLock.modifiedCount!==1)throw Error('native-initiation-race');
-      if(!prior)await strictBindings.insertOne({...binding,creatorText:creatorMessage.text},{session});
-      return true;
-     },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}catch{return deny()}finally{await session.endSession()}
-     if(!bound)return deny();
-     const response=await call('/api/movie-mentor/turn',{projectId,creatorTurnId,message:creatorMessage.text,options:{}},token);
-     if(response.status!==200||response.body?.success!==true||response.body.status!=='mentor-response-ready'||typeof response.body.text!=='string')return deny();
-     const mentorMessage={id:'mentor-'+creatorTurnId,role:'mentor',text:response.body.text,metadata:{backendMetadata:{creatorTurnId}}};
-     return res.json({ok:true,projectId,creatorTurnId,requestDigest:digest,mentorMessage});
-    });
-    app.post('/studio/strict-conversation-settle',async(req,res)=>{
-     const token=req.get('authorization')?.replace(/^Bearer /,''),subject=authenticate(token),body=req.body||{};
-     if(!subject)return res.json({ok:false});
-     const binding=await strictBindings.findOne({ownerId:subject,projectId:body.projectId,creatorTurnId:body.creatorTurnId,operationId:body.operationId,fence:body.fence,expectedRevision:body.expectedRevision,selectionVaultId:body.selectionVaultId});
-     if(!binding||binding.requestDigest!==buildRequestDigest({creatorMessage:body.creatorMessage?.text?.trim()||'',projectId:body.projectId,options:{}}))return res.json({ok:false});
-     return res.json(await strict.settleConversation({...body,token}));
-    });
+    await registerCanonicalSubmission(strict,call);
     const strictCockpitPath=root+'src/components/studio/'+base+'_StrictCockpit.jsx';
     files.push(strictCockpitPath);
     const fixtureSubmit='const result=await nativeMovieService.run("submit",{creatorMessage:{id,role:"creator",text},mentorMessage:{id:globalThis.crypto.randomUUID(),role:"mentor",text:"Diagnostic mentor response",metadata:{backendMetadata:{creatorTurnId:id}}}});';
