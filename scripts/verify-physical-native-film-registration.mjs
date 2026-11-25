@@ -193,7 +193,7 @@ try{
     const executionServer=executionApp.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{executionServer.once('listening',resolve);executionServer.once('error',reject)});
     const call=async(path,body,token=owner)=>{const response=await fetch('http://127.0.0.1:'+executionServer.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}};
 
- return {strict,hash,call,server:executionServer};
+ return {strict,hash,call,execution,server:executionServer};
  }
  async function registerCanonicalSubmission(strict,call){
     const strictBindings=db.collection('native_execution_initiation_bindings');
@@ -766,7 +766,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
     await authorityDb.collection('movie_mentor_result_candidate').createIndex({candidateReference:1},{unique:true});
     for(const key of [{resultReference:1},{candidateReference:1},{executionId:1},{principalId:1,projectId:1,creatorTurnId:1},{reservationId:1}])await authorityDb.collection('movie_mentor_canonical_result').createIndex(key,{unique:true});
     await authorityDb.collection('movie_mentor_creator_state').createIndex({projectId:1},{unique:true,partialFilterExpression:{projectId:{$type:'string'}}});
-    const {strict,hash,call,server:composedServer}=await composeCanonicalExecution();executionServer=composedServer;
+    const {strict,hash,call,execution,server:composedServer}=await composeCanonicalExecution();executionServer=composedServer;
     const fresh=factory({getAuthToken:async()=>owner}),freshOpened=await fresh.open();assert.equal(freshOpened.ok,true);
     const service=freshOpened.services;
     assert.equal((await service.resumeNativeConversation({projectId:routeFilm})).ok,true);
