@@ -379,6 +379,99 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
    assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
    console.log('GREEN PHYSICAL_BROWSER_OWNED_NATIVE_STUDIO_ROUTE_CREATION_SETTLEMENT_RECOVERY_AUTH_DENIAL');
    await routePage.close();
+   // Mount the pinned conversation core through the same native route.
+   // Native mode is an explicit alternative to the legacy transport and
+   // pending-storage wrapper, never a second writer.
+   const corePath=root+'src/components/studio/mentor/'+base+'_Core.jsx';
+   files.push(corePath);
+   let core=readFileSync(root+'src/components/studio/mentor/MovieMentorConversationCore.jsx','utf8');
+   function coreExact(from,to){assert.equal(core.split(from).length,2,'pinned core drift: '+from);core=core.replace(from,to)}
+   coreExact('  onDemonstrate, onTeach, onContinue, onThinkingChange, renderComposerExtra, renderAboveConversation, renderBelowConversation,','  onDemonstrate, onTeach, onContinue, onThinkingChange, renderComposerExtra, renderAboveConversation, renderBelowConversation, nativeSubmit, nativeReadOnly = false,');
+   coreExact('  const [draft, setDraft] = useState("");','  const [draft, setDraft] = useState("");\n  const nativeInFlight=useRef(false);\n  const [nativeFailure,setNativeFailure]=useState(false);');
+   coreExact('if (!text || effectiveThinking || isGenerating) return; const creatorMessage',`if (!text || effectiveThinking || isGenerating || nativeReadOnly || nativeInFlight.current) return;
+    if(typeof nativeSubmit==="function"){
+      nativeInFlight.current=true;setLocalIsThinking(true);setNativeFailure(false);
+      try{const result=await nativeSubmit(text);if(result?.ok!==true)throw Error("Native settlement not verified");setDraft("");}
+      catch{setNativeFailure(true);}
+      finally{nativeInFlight.current=false;setLocalIsThinking(false);}
+      return;
+    }
+    const creatorMessage`);
+   coreExact('disabled={effectiveThinking || isGenerating} style={styles.textarea}','disabled={nativeReadOnly || effectiveThinking || isGenerating} style={styles.textarea}');
+   coreExact('disabled={!draft.trim() || effectiveThinking || isGenerating} style={styles.sendButton}','disabled={nativeReadOnly || !draft.trim() || effectiveThinking || isGenerating} style={styles.sendButton}');
+   coreExact('{renderComposerExtra?.()}{renderBelowConversation?.()}','{nativeFailure&&<p role="alert">Conversation not confirmed. Recover the saved film before retrying.</p>}{renderComposerExtra?.()}{renderBelowConversation?.()}');
+   writeFileSync(corePath,core);
+   // Preserve the restricted candidate; add a cockpit mode to a separate copy.
+   const cockpitPath=root+'src/components/studio/'+base+'_Cockpit.jsx';
+   files.push(cockpitPath);
+   let cockpit=readFileSync(component,'utf8');
+   function cockpitExact(from,to){assert.equal(cockpit.split(from).length,2,'native cockpit drift: '+from);cockpit=cockpit.replace(from,to)}
+   cockpitExact('import MovieMentorConversation from "./mentor/MovieMentorConversation.jsx";','import MovieMentorConversation from "./mentor/MovieMentorConversation.jsx";\nimport NativeConversationCore from "./mentor/'+base+'_Core.jsx";');
+   cockpitExact('const [nativeWritable,setNativeWritable]=useState(false);','const [nativeWritable,setNativeWritable]=useState(false);\n  const nativeSubmission=useRef(false);');
+   const start=cockpit.indexOf('      <input aria-label="Native creator message"');
+   const end=cockpit.indexOf('      {nativeError&&',start);
+   assert.ok(start>=0&&end>start);
+   cockpit=cockpit.slice(0,start)+`      <div aria-label="Native cockpit conversation"><NativeConversationCore key={nativeProject||"locked"} projectId={nativeProject} messages={movieMessages} showJourney={false} showStartPointChooser={false} allowAttachments={false} allowVoice={false} nativeReadOnly={!nativeWritable||nativeBusy} nativeSubmit={async(text)=>{
+        if(nativeSubmission.current||!nativeWritable||nativeBusy||!nativeProject)return {ok:false};
+        const epoch=nativeEpoch.current,projectId=nativeProject;
+        nativeSubmission.current=true;setNativeError("");setNativeWritable(false);
+        try{
+          const id=globalThis.crypto.randomUUID();
+          const result=await nativeMovieService.run("submit",{creatorMessage:{id,role:"creator",text},mentorMessage:{id:globalThis.crypto.randomUUID(),role:"mentor",text:"Diagnostic mentor response",metadata:{backendMetadata:{creatorTurnId:id}}}});
+          if(epoch!==nativeEpoch.current||!result?.ok||result.view?.projectId!==projectId||result.view?.mode!=="read-only"||!Array.isArray(result.view.conversationMessages))return {ok:false};
+          setMovieMessages(result.view.conversationMessages);
+          return {ok:true};
+        }catch{return {ok:false};}
+        finally{nativeSubmission.current=false;}
+      }}/></div>
+`+cockpit.slice(end);
+   // Do not expose duplicate history rendering in the cockpit court.
+   cockpitExact('      <ol aria-label="Restored conversation">{movieMessages.map((m,i)=><li key={m.id||i}>{m.role}: {m.text}</li>)}</ol>','');
+   writeFileSync(cockpitPath,cockpit);
+   let cockpitEntry=readFileSync(entry,'utf8');
+   const importOld="import CreatorWorkspace from './src/components/studio/"+base+".jsx';";
+   assert.equal(cockpitEntry.split(importOld).length,2);
+   cockpitEntry=cockpitEntry.replace(importOld,"import CreatorWorkspace from './src/components/studio/"+base+"_Cockpit.jsx';");
+   writeFileSync(entry,cockpitEntry);
+   const cockpitPage=await browser.newPage();
+   await cockpitPage.goto(url);
+   await cockpitPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   await cockpitPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+   const cockpitRegion=cockpitPage.getByLabel('Native cockpit conversation');
+   await cockpitRegion.getByText('Browser owned Studio route conversation',{exact:true}).waitFor({timeout:15000});
+   const composer=cockpitRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...");
+   assert.equal(await composer.isDisabled(),true);
+   const cockpitBytes=await cockpitPage.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort()));
+   await cockpitPage.getByRole('button',{name:'Request native writing'}).click();
+   await cockpitPage.getByText('Server writer admitted',{exact:true}).waitFor();
+   await composer.fill('Genuine pinned composer native settlement');
+   // Delay the physical settlement request and prove the UI has not published
+   // an uncommitted creator message while the request is held.
+   let release,heldResolve;const held=new Promise(r=>{heldResolve=r}),releaseGate=new Promise(r=>{release=r});
+   await cockpitPage.route('**/native-authority/studio/native-conversation-settle',async route=>{heldResolve();await releaseGate;await route.continue()});
+   await cockpitRegion.getByRole('button',{name:'Send',exact:true}).click();
+   try{
+     await Promise.race([held,new Promise((_,reject)=>setTimeout(()=>reject(Error('native composer did not send settlement')),10000))]);
+     assert.equal(await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).count(),0);
+     assert.equal(await receipts.countDocuments({projectId:routeFilm}),1);
+     assert.equal(await composer.isDisabled(),true);
+   }finally{release();}
+   await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
+   assert.equal(await receipts.countDocuments({projectId:routeFilm}),2);
+   assert.equal((await projects.findOne({_id:routeFilm})).state.conversationMessages.length,4);
+   assert.equal(await composer.isDisabled(),true);
+   assert.equal(await cockpitPage.evaluate(()=>JSON.stringify(Object.entries(localStorage).sort())),cockpitBytes);
+   await cockpitPage.goto(url,{waitUntil:'domcontentloaded'});
+   await cockpitPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   await cockpitPage.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner);
+   await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).waitFor({timeout:15000});
+   assert.equal(await cockpitRegion.getByText('Genuine pinned composer native settlement',{exact:true}).count(),1);
+   assert.equal(await receipts.countDocuments({projectId:routeFilm}),2);
+   await cockpitPage.evaluate(()=>globalThis.__nativeSignOut());
+   await cockpitPage.getByRole('status',{name:'Studio authority locked'}).waitFor();
+   assert.equal(await cockpitRegion.count(),0);
+   await cockpitPage.close();
+   console.log('GREEN PHYSICAL_PINNED_NATIVE_CONVERSATION_CORE_COMPOSER_ATOMIC_PUBLICATION_AND_RECOVERY');
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
    console.log('GREEN PHYSICAL_PINNED_CREATORWORKSPACE_NATIVE_READONLY_CONVERSATION_RELOAD_AND_CREATION');
   }finally{if(browser)await browser.close();if(vite)vite.kill();for(const f of files)try{unlinkSync(f)}catch{}}
