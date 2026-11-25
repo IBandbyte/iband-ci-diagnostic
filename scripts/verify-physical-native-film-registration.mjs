@@ -353,6 +353,55 @@ try{
     assert.deepEqual(readback.view.conversationMessages,continued.view.conversationMessages);
     assert.equal(readback.view.projectRevision,continued.view.projectRevision);
     console.log('GREEN PHYSICAL_POST_RESTART_CANONICAL_SERVICE_CONTINUATION');
+    assert.ok(process.env.NATIVE_RESTART_BROWSER_MANIFEST,'fresh browser candidate manifest required');
+    const candidate=JSON.parse(readFileSync(process.env.NATIVE_RESTART_BROWSER_MANIFEST,'utf8')).browserCandidate;
+    const root='../frontend/',base=candidate.base,config=root+base+'.config.mjs';
+    let freshBrowser,freshVite;
+    try{
+     for(const file of candidate.files)writeFileSync(file.path,file.content);
+     writeFileSync(config,`import {defineConfig} from 'vite';import react from '@vitejs/plugin-react-swc';export default defineConfig({plugins:[react()],server:{proxy:{'/native-authority':{target:'http://127.0.0.1:${server.address().port}',changeOrigin:true,rewrite:path=>path.replace(/^\\/native-authority/,'')}}}});`);
+     freshVite=spawn('./node_modules/.bin/vite',['--host','127.0.0.1','--port','52769','--strictPort','--config',base+'.config.mjs'],{cwd:root,stdio:['ignore','pipe','pipe']});
+     let output='';freshVite.stdout.on('data',x=>output+=x);freshVite.stderr.on('data',x=>output+=x);
+     const url='http://127.0.0.1:52769/'+base+'.html';
+     let ready=false;for(let i=0;i<100;i++){try{if((await fetch(url)).ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,150))}
+     assert.ok(ready,output);
+     const {chromium}=await import('playwright');freshBrowser=await chromium.launch({headless:true});
+     const page=await freshBrowser.newPage();
+     const signIn=async()=>{await page.goto(url);await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});await page.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)};
+     await signIn();
+     const region=page.getByLabel('Native cockpit conversation'),transcript=region.getByLabel('Committed conversation transcript'),composer=region.getByPlaceholder("Tell Movie Mentor what's on your mind...");
+     await transcript.getByText(creatorMessage.text,{exact:true}).waitFor({timeout:15000});
+     const previous=await projects.findOne({_id:expected.projectId});
+     assert.deepEqual(previous.state.conversationMessages,continued.view.conversationMessages);
+     await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+     await page.getByRole('button',{name:'Request native writing'}).click();
+     await page.getByText('Server writer admitted',{exact:true}).waitFor();
+     const browserText='Fresh process browser continuation '+randomUUID();
+     await composer.fill(browserText);
+     await region.getByRole('button',{name:'Send',exact:true}).click();
+     await transcript.getByText(browserText,{exact:true}).waitFor({timeout:20000});
+     const published=await projects.findOne({_id:expected.projectId});
+     assert.equal(published.revision,previous.revision+1);
+     assert.deepEqual(published.state.conversationMessages.slice(0,-2),previous.state.conversationMessages);
+     const [creator,mentor]=published.state.conversationMessages.slice(-2);
+     assert.equal(creator.text,browserText);
+     const row=await mongoose.connection.db.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:expected.projectId,creatorTurnId:creator.id,phase:'settled'});
+     assert.ok(row);
+     const canonical=await composed.execution.authority.readCanonicalResult({executionId:row.executionId});
+     assert.equal(canonical.authorized,true);
+     assert.equal(mentor.text,canonical.resultPayload.text);
+     assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+3);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+2);
+     assert.equal(providerRequests.length,10);
+     await signIn();
+     await transcript.getByText(browserText,{exact:true}).waitFor({timeout:15000});
+     assert.deepEqual(await projects.findOne({_id:expected.projectId}),published);
+     assert.equal(await receipts.countDocuments({projectId:expected.projectId}),expected.receipts+3);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+2);
+     assert.equal(providerRequests.length,10);
+     console.log('GREEN PHYSICAL_POST_RESTART_GENUINE_BROWSER_COMPOSER_CONTINUATION_AND_RELOAD');
+    }finally{if(freshBrowser)await freshBrowser.close();if(freshVite)freshVite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}}
+
    }finally{if(freshExecutionServer)await new Promise(r=>freshExecutionServer.close(r));await new Promise(r=>providerServer.close(r));}
 
   }
@@ -1090,7 +1139,7 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
         const pending=await projects.findOne({_id:routeFilm});
         assert.deepEqual(pending,concurrentProject);
         assert.equal((await entitlements.findOne({principalId:ownerId})).consumedUnits,bypassBalance.consumedUnits+4);
-        writeFileSync(process.env.NATIVE_DEFERRED_EXIT_MANIFEST,JSON.stringify({...expectedRestart,originalPid:process.pid,consumedUnits:bypassBalance.consumedUnits+4}));
+        writeFileSync(process.env.NATIVE_DEFERRED_EXIT_MANIFEST,JSON.stringify({...expectedRestart,originalPid:process.pid,consumedUnits:bypassBalance.consumedUnits+4,browserCandidate:{base,files:files.map(path=>({path,content:readFileSync(path,'utf8')}))}}));
         console.log('GREEN PHYSICAL_CANONICAL_UNPUBLISHED_TURN_PRESERVED_BEFORE_PROCESS_EXIT');
        }else{
        const child=await new Promise((resolve,reject)=>{
@@ -1210,7 +1259,8 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
   const expected=JSON.parse(readFileSync(manifest,'utf8'));
   assert.equal(restarted.pid,expected.originalPid);
   const mode=process.env.NATIVE_DEFERRED_EXIT_MANIFEST?'NATIVE_CANONICAL_RESTART_COURT':'NATIVE_POST_EXIT_READBACK';
-  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(expected)},encoding:'utf8',timeout:30000});
+  const {browserCandidate,...restartExpected}=expected;
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:90000});
   process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
  }finally{try{unlinkSync(manifest)}catch{}}
  if(!process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
