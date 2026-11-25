@@ -66,7 +66,11 @@ try{
   if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>hash(r.entry)!==hash(outbox[i]))||records.at(-1).stateDigest!==hash(canonical.state)||records.at(-1).fullOutboxDigest!==hash(outbox))return res.json({ok:false});
   return res.json({ok:true,projectId:p._id,revision:p.revision,state:p.state});
  });
- app.post('/studio/publication-grant',async(req,res)=>res.json(await provenance.issue({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/publication-grant',async(req,res)=>{
+  const {projectId,revision}=req.body;
+  const grant=await provenance.issue({projectId,revision,token:req.get('authorization')?.replace(/^Bearer /,'')});
+  return res.json(grant?.grantId?{grantId:grant.grantId,projectId,revision}:null);
+ });
  app.post('/studio/admit-publication',async(req,res)=>res.json(await gate.admit({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/read-admission',async(req,res)=>res.json(await gate.readAdmission({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
@@ -169,14 +173,22 @@ try{
    await page.exposeFunction('nativeMovieRun',async(action,target)=>{
     if(action==='resume'||!browserSession){browserSession?.invalidate();browserSession=factory({getAuthToken:async()=>owner});const r=await browserSession.open();if(!r.ok)return r}
     const app=browserSession.getServices();if(!app)return {ok:false};
-    if(action==='admit')return app.applicationSecondFilm.requestEditing({token:owner,selectionVaultId:vaultId,operationId:'browser-admit-'+randomUUID()});
-    if(action==='submit')return app.submitNativeConversation(target);
+    if(action==='admit'){
+     const admitted=await app.applicationSecondFilm.requestEditing({token:owner,selectionVaultId:vaultId,operationId:'browser-admit-'+randomUUID()});
+     assert.equal(admitted.ok,true,'native browser admission: '+JSON.stringify(admitted));
+     return admitted;
+    }
+    if(action==='submit'){
+     const settled=await app.submitNativeConversation(target);
+     assert.equal(settled.ok,true,'native browser settlement: '+JSON.stringify(settled));
+     return settled;
+    }
     if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-create-'+target});
     const current=await selection.read({token:owner,projectId:vaultId});
     const id=action==='resume'?current.activeProjectId:target;
     return current.activeProjectId===id?app.applicationSecondFilm.reopen({token:owner,selectionVaultId:vaultId,projectId:id}):app.applicationSecondFilm.choose({token:owner,selectionVaultId:vaultId,nextProjectId:id,selectionOperationId:'browser-switch-'+randomUUID(),localMemory:{getState:()=>({})}});
    });
-   const poll=async(locator,expected)=>{for(let i=0;i<100;i++){if((await locator.textContent())?.includes(expected))return;await new Promise(r=>setTimeout(r,100))}throw Error('browser projection missing '+expected+' '+await locator.textContent())};
+   const poll=async(locator,expected)=>{for(let i=0;i<100;i++){if(await locator.count()&&(await locator.textContent())?.includes(expected))return;await new Promise(r=>setTimeout(r,100))}throw Error('browser projection missing '+expected+'; visible body: '+await page.locator('body').innerText())};
    await page.goto(url);
    const display=page.getByLabel('Restored conversation'),identity=page.getByLabel('Verified native movie');
    const first=expected[0],second=expected[1];
