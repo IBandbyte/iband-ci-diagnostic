@@ -104,6 +104,20 @@ export function createApplicationOwnedStudioServices({
    return {ok:true,view:reopened.view,recovered:result.recovered,receipt:result.receipt};
   }catch{return {ok:false,reason:'interrupted-recovery-unavailable'}}
  }
+ async function cancelNativeUncommittedConversation({projectId,confirmCancellation}={}){
+  if(confirmCancellation!==true)return {ok:false,reason:'explicit-confirmation-required'};
+  try{
+   const token=snapshotToken(),epoch=creationEpoch,bytes=readLocalBytes();
+   const current=()=>epoch===creationEpoch&&snapshotToken()===token&&readLocalBytes()===bytes;
+   const selected=await readSelected({token,projectId:selectionVaultId}),project=await readProject({token,projectId});
+   if(!current()||selected?.ok!==true||selected.activeProjectId!==projectId||project?.ok!==true||project.projectId!==projectId)return {ok:false};
+   const result=await execute('/studio/native-conversation-cancel',{token,selectionVaultId,projectId,expectedSelectionRevision:selected.revision,expectedRevision:project.revision,confirmCancellation:true});
+   if(!current()||result?.ok!==true||result.cancelled!==true||result.projectId!==projectId||result.revision!==project.revision)return {ok:false};
+   const recovered=await resumeNativeConversation({projectId});
+   if(!current()||!recovered.ok||recovered.view.projectRevision!==project.revision||JSON.stringify(recovered.view.conversationMessages)!==JSON.stringify(project.state.conversationMessages))return {ok:false};
+   return {ok:true,view:recovered.view,cancelled:true};
+  }catch{return {ok:false}}
+ }
  let submitting=false;
  async function submitNativeConversation({creatorMessage,mentorMessage}={}){
   const admitted=editable.getSnapshot(),selected=selection.getSnapshot();
@@ -144,7 +158,7 @@ export function createApplicationOwnedStudioServices({
   creationEpoch++;pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
  };
  return Object.freeze({
-  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,resumeNativeConversation,
+  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,resumeNativeConversation,cancelNativeUncommittedConversation,
   getSelection:()=>selection.getSnapshot(),getContinuity:()=>continuity.getSnapshot(),
   invalidate
  });

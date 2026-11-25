@@ -164,5 +164,30 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
   if(!retired.ok)return {ok:false};
   return {ok:true,projectId,recovered:true,receipt};
  }
- return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt,retireConversationWriter,recoverInterruptedConversation});
+ // Explicit cancellation, not automatic reload recovery. The transaction
+ // serializes with settlement on both the selection and canonical state rows.
+ // A committed or changed writer is never cancelled.
+ async function cancelUncommittedConversation({token,selectionVaultId,projectId,expectedRevision,expectedSelectionRevision,confirmCancellation}={}){
+  const ownerId=gate.authenticateOwner(token);
+  if(!ownerId||!selectionVaultId||!projectId||confirmCancellation!==true||!Number.isSafeInteger(expectedRevision)||!Number.isSafeInteger(expectedSelectionRevision))return {ok:false};
+  const session=client.startSession();
+  try{return await session.withTransaction(async()=>{
+   const vault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false,revision:expectedSelectionRevision,'state.content.activeProjectId':projectId},{session});
+   const canonical=await gate.states.findOne({projectId,ownerId,revoked:false,revision:expectedRevision},{session});
+   const project=await projects.findOne({_id:projectId,ownerId,revision:expectedRevision},{session});
+   if(!vault||!canonical||!project||!canonical.activeWriterFence||!canonical.activeAdoptionGrant||!Array.isArray(project.state?.conversationMessages)||digest(canonical.state.content)!==digest(project.state))return {ok:false};
+   const admission=await gate.admissions.findOne({projectId,ownerId,fence:canonical.activeWriterFence,grantId:canonical.activeAdoptionGrant,ownershipRevision:canonical.ownershipRevision,revision:expectedRevision,status:'admitted'},{session});
+   if(!admission||admission.stateDigest!==digest(canonical.state)||await receipts.findOne({projectId,ownerId,fence:admission.fence},{session}))return {ok:false};
+   const records=await gate.ledger.find({projectId,ownerId,ownershipRevision:canonical.ownershipRevision},{session}).sort({revision:1}).toArray(),outbox=canonical.state.durablePublicationOutbox;
+   if(!Array.isArray(outbox)||!records.length||records.length!==outbox.length||records.some((r,i)=>digest(r.entry)!==digest(outbox[i]))||records.at(-1).stateDigest!==digest(canonical.state)||records.at(-1).fullOutboxDigest!==digest(outbox))return {ok:false};
+   const lock=await gate.states.updateOne({_id:vault._id,revision:expectedSelectionRevision,revoked:false,'state.content.activeProjectId':projectId},{$inc:{conversationSelectionFence:1}},{session});
+   const clear=await gate.states.updateOne({_id:canonical._id,revision:expectedRevision,activeWriterFence:admission.fence,activeAdoptionGrant:admission.grantId,revoked:false},{$unset:{activeWriterFence:'',activeAdoptionGrant:''}},{session});
+   const retired=await gate.admissions.updateOne({_id:admission._id,status:'admitted'},{$set:{status:'retired',retirementReason:'explicit-uncommitted-conversation-cancellation'}},{session});
+   if(lock.modifiedCount!==1||clear.modifiedCount!==1||retired.modifiedCount!==1)throw Error('uncommitted-cancellation-race');
+   return {ok:true,projectId,revision:expectedRevision,cancelled:true};
+  },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}
+  catch(e){if(e?.code===112||e?.code===11000||e?.hasErrorLabel?.('TransientTransactionError'))return {ok:false};throw e}
+  finally{await session.endSession()}
+ }
+ return Object.freeze({save,readCommitted,settleConversation,readConversationReceipt,retireConversationWriter,recoverInterruptedConversation,cancelUncommittedConversation});
 }

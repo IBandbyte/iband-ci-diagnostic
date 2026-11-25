@@ -76,6 +76,7 @@ try{
  app.post('/studio/native-conversation-receipt',async(req,res)=>res.json(await settlement.readConversationReceipt({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-retire',async(req,res)=>res.json(await settlement.retireConversationWriter({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/native-conversation-recover',async(req,res)=>res.json(await settlement.recoverInterruptedConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
+ app.post('/studio/native-conversation-cancel',async(req,res)=>res.json(await settlement.cancelUncommittedConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  let dropNextConversationAck=false,droppedAcks=0;
  app.post('/studio/native-conversation-settle',async(req,res)=>{
   const result=await settlement.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')});
@@ -271,6 +272,36 @@ try{
    assert.equal(await receipts.countDocuments({projectId:created}),5);
    const finalProject=await projects.findOne({_id:created});assert.equal(finalProject.revision,6);assert.equal(finalProject.state.conversationMessages.length,10);
    console.log('GREEN PHYSICAL_NATIVE_INTERRUPTED_SESSION_DURABLE_RECEIPT_RECONSTRUCTION_AND_CONTINUATION');
+   // Distinguish a never-committed admission from a completed stranded writer.
+   // A fresh session must not automatically cancel; explicit cancellation is
+   // revision-fenced and a delayed request from the retired writer must fail.
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   const abandoned=browserSession.getServices().getContinuity(),abandonedTurn=randomUUID();
+   const abandonedWrite={projectId:created,selectionVaultId:vaultId,operationId:abandoned.operationId+':'+abandonedTurn,creatorTurnId:abandonedTurn,expectedRevision:6,fence:abandoned.fence,creatorMessage:{id:abandonedTurn,role:'creator',text:'Never committed'},mentorMessage:{id:randomUUID(),role:'mentor',text:'Never committed response',metadata:{backendMetadata:{creatorTurnId:abandonedTurn}}}};
+   const beforeCancel=await selection.read({token:owner,projectId:vaultId});
+   const cancellation={projectId:created,selectionVaultId:vaultId,expectedSelectionRevision:beforeCancel.revision,expectedRevision:6,confirmCancellation:true};
+   browserSession.invalidate();browserSession=null;
+   await page.reload();await poll(page.getByRole('alert'),'Movie recovery unavailable');
+   const fresh=browserSession.getServices();assert.ok(fresh);
+   assert.equal((await gate.admissions.findOne({projectId:created,fence:abandoned.fence})).status,'admitted');
+   assert.equal((await fresh.cancelNativeUncommittedConversation({projectId:created})).ok,false);
+   assert.equal((await transport({path:'/studio/native-conversation-cancel',token:foreign,body:cancellation})).ok,false);
+   assert.equal((await transport({path:'/studio/native-conversation-cancel',token:owner,body:{...cancellation,expectedRevision:5}})).ok,false);
+   const cancelled=await fresh.cancelNativeUncommittedConversation({projectId:created,confirmCancellation:true});
+   assert.equal(cancelled.ok,true,JSON.stringify(cancelled));assert.equal(cancelled.view.writable,false);
+   assert.equal((await gate.admissions.findOne({projectId:created,fence:abandoned.fence})).retirementReason,'explicit-uncommitted-conversation-cancellation');
+   assert.deepEqual(await projects.findOne({_id:created}),finalProject);
+   assert.equal(await receipts.countDocuments({projectId:created}),5);
+   assert.equal((await transport({path:'/studio/native-conversation-settle',token:owner,body:abandonedWrite})).ok,false);
+   await page.reload();await poll(identity,created);await poll(display,'Fresh session continuation');
+   await page.getByRole('button',{name:'Request native writing'}).click();await poll(page.getByText('Server writer admitted',{exact:true}),'Server writer admitted');
+   await page.getByLabel('Native creator message').fill('After explicit cancellation');
+   await page.getByRole('button',{name:'Settle native conversation'}).click();await poll(display,'After explicit cancellation');
+   assert.equal(await receipts.countDocuments({projectId:created}),6);
+   assert.equal((await projects.findOne({_id:created})).revision,7);
+   assert.equal((await projects.findOne({_id:created})).state.conversationMessages.length,12);
+   assert.equal((await transport({path:'/studio/native-conversation-settle',token:owner,body:abandonedWrite})).ok,false);
+   console.log('GREEN PHYSICAL_NATIVE_EXPLICIT_UNCOMMITTED_CANCELLATION_AND_STALE_WRITER_DENIAL');
    console.log('GREEN PHYSICAL_NATIVE_SAME_FILM_RENEWAL_AND_LOST_HTTP_ACK_RECEIPT_RECOVERY');
    browserSession?.invalidate();
    console.log('GREEN PHYSICAL_NATIVE_BROWSER_WRITER_SETTLEMENT_RECEIPT_AND_RENEWAL');
