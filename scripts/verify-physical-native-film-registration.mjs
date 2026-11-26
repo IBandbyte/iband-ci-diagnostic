@@ -252,7 +252,7 @@ try{
     }});
     const executionApp=express();executionApp.use(express.json());
     executionApp.use('/api/movie-mentor',createMovieMentorTurnRouter({requestAuthority,inferenceSpendAuthority:spend.authority,inferenceExecutionAuthority:execution.authority,inferenceSettlementAuthority:accounting}));
-    const {strict,hash}=composeCanonicalRecovery(execution,accounting);
+    const {strict,hash}=composeCanonicalRecovery(execution,accounting,(...args)=>call(...args));
     executionApp.post('/studio/strict-conversation-settle',async(req,res)=>res.json(await strict.settleConversation({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
     const executionServer=executionApp.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{executionServer.once('listening',resolve);executionServer.once('error',reject)});
     const call=async(path,body,token=owner)=>{const response=await fetch('http://127.0.0.1:'+executionServer.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return {status:response.status,body:await response.json()}};
@@ -311,7 +311,7 @@ try{
     });
 
  }
- function composeCanonicalRecovery(execution,accounting){
+ function composeCanonicalRecovery(execution,accounting,dispatchBoundTurn){
     const authorityDb=mongoose.connection.db;
     const strictBindings=db.collection('native_execution_initiation_bindings');
     const canonicalize=x=>x===null||typeof x!=='object'?x:Array.isArray(x)?x.map(canonicalize):Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonicalize(x[k])]));
@@ -335,7 +335,35 @@ try{
      if(!state.activeWriterFence)return settlement.recoverInterruptedConversation({token,selectionVaultId,projectId});
      const binding=await strictBindings.findOne({ownerId,projectId,selectionVaultId,fence:state.activeWriterFence,expectedRevision:state.revision});
      if(!binding||typeof binding.creatorText!=='string'||binding.requestDigest!==buildRequestDigest({creatorMessage:binding.creatorText,projectId,options:{}}))return settlement.recoverInterruptedConversation({token,selectionVaultId,projectId});
-     const row=await authorityDb.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId,creatorTurnId:binding.creatorTurnId,requestDigest:binding.requestDigest,phase:'settled'});
+     const executions=authorityDb.collection('movie_mentor_inference_execution');
+     const identity={principalId:ownerId,projectId,creatorTurnId:binding.creatorTurnId,requestDigest:binding.requestDigest};
+     let row=await executions.findOne({...identity,phase:'settled'});
+     if(!row?.executionId&&dispatchBoundTurn){
+      // Resume only the exact durable bound creator turn through the existing
+      // authenticated canonical execution authority. Never synthesize a result
+      // or allocate a new turn identity. Its durable execution admission owns
+      // provider dispatch and accounting under concurrent recovery.
+      const admission=await gate.admissions.findOne({ownerId,projectId,fence:binding.fence,revision:binding.expectedRevision,status:'admitted',grantId:state.activeAdoptionGrant,ownershipRevision:state.ownershipRevision});
+      if(!admission||state.nativeExecutionBoundWriterFence!==binding.fence||binding.operationId!==admission.operationId+':'+binding.creatorTurnId)return deny;
+      const ownership=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:ownerId},projectId});
+      if(ownership?.authorized!==true)return deny;
+      const response=await dispatchBoundTurn('/api/movie-mentor/turn',{projectId,creatorTurnId:binding.creatorTurnId,message:binding.creatorText,options:{}},token);
+      // A competing caller may already have settled and retired this writer.
+      // Re-read durable authority rather than treating its response as proof.
+      row=await executions.findOne({...identity,phase:'settled'});
+      if(!row?.executionId){
+       const recovered=await settlement.recoverInterruptedConversation({token,selectionVaultId,projectId});
+       if(recovered.ok)return recovered;
+       // The canonical endpoint may deny an overlapping in-flight request.
+       // Observe only the original execution, with bounded read-only polling.
+       if(response.status!==200||response.body?.status!=='mentor-response-ready'){
+        for(let attempt=0;attempt<100&&!row?.executionId;attempt++){
+         await new Promise(r=>setTimeout(r,100));
+         row=await executions.findOne({...identity,phase:'settled'});
+        }
+       }
+      }
+     }
      if(!row?.executionId)return deny;
      const result=await execution.authority.readCanonicalResult({executionId:row.executionId});
      if(result?.authorized!==true||typeof result.resultPayload?.text!=='string')return deny;
