@@ -623,6 +623,23 @@ try{
     await page.getByRole('button',{name:'Send',exact:true}).click();
     await Promise.race([firstReady,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('first genuine execution request not captured')),15000);t.unref()})]);
     assert.equal(captured[0].input.fence,originalAuthority.activeWriterFence);
+    // A remains paused before server ingress. Explicitly retire its unbound
+    // writer through the existing authenticated cancellation contract.
+    const cancellationSelection=await selection.read({token:owner,projectId:proof.vaultId});
+    const cancellation={projectId:proof.projectId,selectionVaultId:proof.vaultId,expectedRevision:captured[0].input.expectedRevision,expectedSelectionRevision:cancellationSelection.revision,confirmCancellation:true};
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId,creatorTurnId:captured[0].input.creatorTurnId}),0);
+    const beforeCancellationBalance=await entitlement.findOne({principalId:ownerId});
+    assert.equal((await transport({path:'/studio/native-conversation-cancel',token:foreign,body:cancellation})).ok,false);
+    const cancelled=await transport({path:'/studio/native-conversation-cancel',token:owner,body:cancellation});
+    assert.equal(cancelled.ok,true,JSON.stringify(cancelled));
+    assert.equal(cancelled.view.writable,false);
+    const retired=await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:originalAuthority.activeWriterFence});
+    assert.equal(retired.retirementReason,'explicit-uncommitted-conversation-cancellation');
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),deterministicBefore);
+    assert.deepEqual(await entitlement.findOne({principalId:ownerId}),beforeCancellationBalance);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),4);
+    assert.equal(providerRequests.length,deterministicCalls);
+    console.log('PHYSICAL_CAPTURED_WRITER_CANCELLATION_EVIDENCE '+JSON.stringify({retiredFence:retired.fence,reason:retired.retirementReason,capturedRequests:captured.length,providerEffects:0,receipts:4}));
     await peerSignIn();
     await peer.getByRole('button',{name:'Request native writing'}).click();
     await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
