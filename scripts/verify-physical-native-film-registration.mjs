@@ -632,8 +632,15 @@ try{
     assert.equal((await transport({path:'/studio/native-conversation-cancel',token:foreign,body:cancellation})).ok,false);
     const cancelled=await transport({path:'/studio/native-conversation-cancel',token:owner,body:cancellation});
     assert.equal(cancelled.ok,true,JSON.stringify(cancelled));
-    assert.equal(cancelled.view.writable,false);
+    assert.equal(cancelled.cancelled,true);
+    assert.equal(cancelled.projectId,proof.projectId);
+    assert.equal(cancelled.revision,cancellation.expectedRevision);
+    const cancelledState=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+    assert.equal(cancelledState.activeWriterFence,undefined);
+    assert.equal(cancelledState.activeAdoptionGrant,undefined);
+    assert.equal(cancelledState.revision,cancellation.expectedRevision);
     const retired=await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:originalAuthority.activeWriterFence});
+    assert.equal(retired.status,'retired');
     assert.equal(retired.retirementReason,'explicit-uncommitted-conversation-cancellation');
     assert.deepEqual(await projects.findOne({_id:proof.projectId}),deterministicBefore);
     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),beforeCancellationBalance);
