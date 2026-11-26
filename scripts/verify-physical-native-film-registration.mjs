@@ -694,6 +694,94 @@ try{
     assert.deepEqual(await projects.findOne({_id:proof.projectId}),deterministicFinal);
     for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
     console.log('GREEN PHYSICAL_DETERMINISTIC_STALE_BROWSER_RETRY_CANONICAL_CONVERGENCE');
+    // Independent fresh writer epochs: cancellation first, binding first,
+    // then actual overlapping HTTP cancellation and initiation.
+    const arbitrationHistory=[message,peerMessage,winningPage.text,retryText,bText,aText];
+    const bindingRows=db.collection('native_execution_initiation_bindings');
+    for(const order of ['cancel-first','bind-first','concurrent']){
+     await signIn();
+     const priorProject=await projects.findOne({_id:proof.projectId});
+     const priorReceipts=await receipts.countDocuments({projectId:proof.projectId});
+     const priorExecutions=await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId});
+     const priorBindings=await bindingRows.countDocuments({ownerId,projectId:proof.projectId});
+     const priorCalls=providerRequests.length;
+     const priorConsumed=(await entitlement.findOne({principalId:ownerId})).consumedUnits;
+     await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+     await page.getByRole('button',{name:'Request native writing'}).click();
+     await page.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+     const arbitrationText='Cancellation initiation '+order+' '+randomUUID();
+     let notifyCapture,releaseCapture;const captureReady=new Promise(r=>notifyCapture=r),captureGate=new Promise(r=>releaseCapture=r);
+     await page.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      notifyCapture(route.request().postDataJSON());
+      await captureGate;
+      // The exact genuine request is dispatched once by the arbitration court;
+      // browser acknowledgement is deliberately withheld until realm reload.
+      await route.abort();
+     });
+     await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(arbitrationText);
+     await page.getByRole('button',{name:'Send',exact:true}).click();
+     const input=await Promise.race([captureReady,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('arbitration genuine capture timeout')),15000);t.unref()})]);
+     const selected=await selection.read({token:owner,projectId:proof.vaultId});
+     const cancel={projectId:proof.projectId,selectionVaultId:proof.vaultId,expectedRevision:input.expectedRevision,expectedSelectionRevision:selected.revision,confirmCancellation:true};
+     const initiate=()=>transport({path:'/studio/native-execution-initiate',token:owner,body:input});
+     const cancelRequest=()=>transport({path:'/studio/native-conversation-cancel',token:owner,body:cancel});
+     assert.equal((await transport({path:'/studio/native-conversation-cancel',token:foreign,body:cancel})).ok,false);
+     let executionResult,cancelResult;
+     if(order==='cancel-first'){cancelResult=await cancelRequest();executionResult=await initiate();assert.equal(cancelResult.ok,true);assert.equal(executionResult.ok,false);}
+     else if(order==='bind-first'){executionResult=await initiate();cancelResult=await cancelRequest();assert.equal(executionResult.ok,true);assert.equal(cancelResult.ok,false);}
+     else [cancelResult,executionResult]=await Promise.all([cancelRequest(),initiate()]);
+     assert.equal(Number(cancelResult.ok===true)+Number(executionResult.ok===true),1,'exactly one authority may win');
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),priorProject);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),priorReceipts);
+     const bound=executionResult.ok===true;
+     assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),priorBindings+Number(bound));
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),priorExecutions+Number(bound));
+     assert.equal(providerRequests.length,priorCalls+(bound?5:0));
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,priorConsumed+Number(bound));
+     if(bound){
+      assert.equal((await cancelRequest()).ok,false);
+      const row=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:input.creatorTurnId});
+      assert.ok(row);const result=await composed.execution.authority.readCanonicalResult({executionId:row.executionId});
+      assert.equal(result.authorized,true);assert.equal(executionResult.mentorMessage.text,result.resultPayload.text);
+     }else{
+      const retired=await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:input.fence});
+      assert.equal(retired.status,'retired');assert.equal(retired.retirementReason,'explicit-uncommitted-conversation-cancellation');
+      assert.equal((await initiate()).ok,false);
+     }
+     console.log('PHYSICAL_CANCELLATION_INITIATION_ARBITRATION_EVIDENCE '+JSON.stringify({order,turn:input.creatorTurnId,fence:input.fence,cancelled:cancelResult.ok===true,bound,providerEffects:providerRequests.length-priorCalls,charges:(await entitlement.findOne({principalId:ownerId})).consumedUnits-priorConsumed}));
+     // Destroy the original browser page before permitting its held request
+     // to complete, so recovery must come from durable server authority.
+     const closing=page.goto('about:blank');releaseCapture();await closing;
+     await page.unrouteAll({behavior:'wait'});
+     await peerSignIn();
+     const history=peer.getByLabel('Committed conversation transcript');
+     if(!bound){
+      await peer.getByRole('button',{name:'Request native writing'}).click();await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+      await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(arbitrationText);
+      await peer.getByRole('button',{name:'Send',exact:true}).click();
+     }
+     await history.getByText(arbitrationText,{exact:true}).waitFor({timeout:20000});
+     const settled=await projects.findOne({_id:proof.projectId});
+     assert.equal(settled.revision,priorProject.revision+1);
+     assert.deepEqual(settled.state.conversationMessages.slice(0,-2),priorProject.state.conversationMessages);
+     assert.equal(settled.state.conversationMessages.at(-2).text,arbitrationText);
+     if(bound)assert.equal(settled.state.conversationMessages.at(-2).id,input.creatorTurnId);
+     const settledRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:settled.state.conversationMessages.at(-2).id,phase:'settled'});
+     assert.ok(settledRow);const settledCanonical=await composed.execution.authority.readCanonicalResult({executionId:settledRow.executionId});
+     assert.equal(settledCanonical.authorized,true);assert.equal(settled.state.conversationMessages.at(-1).text,settledCanonical.resultPayload.text);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),priorReceipts+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),priorExecutions+1);
+     assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),priorBindings+1);
+     assert.equal(providerRequests.length,priorCalls+5);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,priorConsumed+1);
+     arbitrationHistory.push(arbitrationText);
+     await Promise.all([signIn(),peerSignIn()]);
+     for(const p of [page,peer])for(const txt of arbitrationHistory)await p.getByLabel('Committed conversation transcript').getByText(txt,{exact:true}).waitFor({timeout:15000});
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),settled);
+     for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+     console.log('GREEN '+({'cancel-first':'PHYSICAL_CANCEL_FIRST_INITIATION_DENIAL_AND_RETRY','bind-first':'PHYSICAL_BIND_FIRST_CANCELLATION_DENIAL_AND_DURABLE_RECOVERY','concurrent':'PHYSICAL_CONCURRENT_CANCELLATION_INITIATION_ARBITRATION_AND_CONVERGENCE'})[order]);
+    }
+
 
    }else console.log(proof.precommit?'GREEN PHYSICAL_PRECOMMIT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD':'GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_CONTINUATION_AND_RELOAD');
   }finally{if(peerBrowser)await peerBrowser.close();if(browser)await browser.close();if(vite)vite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
