@@ -17,7 +17,7 @@ import {spawnSync,spawn} from 'node:child_process';
 import {readFileSync,writeFileSync,unlinkSync} from 'node:fs';
 import {createApplicationStudioSessionFactory} from './isolated-application-studio-session-factory.mjs';
 import mongoose from 'mongoose';
-import {MongoClient} from 'mongodb';
+import {MongoClient,UUID} from 'mongodb';
 import {createMovieMentorProjectsRouter} from './movieMentorProjects.js';
 import {createMovieMentorNativeProjectCreationAuthority} from './ai/MovieMentorNativeProjectCreationAuthority.js';
 import {createMovieMentorProjectOwnershipAuthority} from './ai/MovieMentorProjectOwnershipRegistry.js';
@@ -61,8 +61,8 @@ try{
  let failNextRegistration=false,dropNextRegistrationAck=false,failedRegistrationId=null,droppedRegistrationId=null;
  let initialRegistrationArrivals=0,initialRegistrationRelease;const initialRegistrationBarrier=new Promise(r=>initialRegistrationRelease=r);
  const canonicalCreatorStates=client.db(mongoose.connection.db.databaseName).collection('movie_mentor_creator_state');
- const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled,beforeCommit:async({projectId,canonical})=>{if(canonical&&process.env.NATIVE_PRECOMMIT_PAUSE){
-  writeFileSync(process.env.NATIVE_PRECOMMIT_PAUSE,JSON.stringify({pid:process.pid,projectId,arrivals:initialRegistrationArrivals}));
+ const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled,beforeCommit:async({projectId,canonical,session})=>{if(canonical&&process.env.NATIVE_PRECOMMIT_PAUSE){
+  writeFileSync(process.env.NATIVE_PRECOMMIT_PAUSE,JSON.stringify({pid:process.pid,projectId,arrivals:initialRegistrationArrivals,sessionId:session.id.id.toUUID().toString()}));
   await new Promise(()=>{});
  }if(canonical&&failNextRegistration){failNextRegistration=false;failedRegistrationId=projectId;throw Error('isolated-registration-interruption');}}});
  const receipts=db.collection('native_conversation_receipts');
@@ -386,7 +386,28 @@ try{
    let ready=false;for(let i=0;i<100;i++){try{if((await fetch(url)).ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,150))}assert.ok(ready,output);
    const {chromium}=await import('playwright');browser=await chromium.launch({headless:true});const page=await browser.newPage();
    const signIn=async()=>{await page.goto(url);await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});await page.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)};
-   await signIn();await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,proof.projectId);
+    const recoveryTrace=[];
+    page.on('response',async response=>{
+     const pathname=new URL(response.url()).pathname;
+     if(!pathname.startsWith('/native-authority/'))return;
+     try{const data=await response.json();recoveryTrace.push({path:pathname,status:response.status(),ok:data.ok,success:data.success,reason:data.reason,projectId:data.projectId});}
+     catch{recoveryTrace.push({path:pathname,status:response.status()});}
+    });
+    page.on('requestfailed',request=>recoveryTrace.push({path:new URL(request.url()).pathname,failure:request.failure()?.errorText}));
+    page.on('pageerror',error=>recoveryTrace.push({pageError:error.message}));
+    if(proof.precommit){
+     const deadline=Date.now()+95000;
+     while(true){
+      const ops=await client.db('admin').aggregate([{$currentOp:{allUsers:true,idleSessions:true}},{$match:{'lsid.id':new UUID(proof.abandonedSessionId),transaction:{$exists:true}}}]).toArray();
+      if(!ops.length)break;
+      assert.ok(Date.now()<deadline,'abandoned registration transaction not reaped');
+      await new Promise(r=>setTimeout(r,250));
+     }
+     console.log('PHYSICAL_PRECOMMIT_ABANDONED_TRANSACTION_REAPED');
+    }
+    await signIn();
+    try{await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,proof.projectId);}
+    catch(error){console.error('PHYSICAL_REGISTRATION_RECOVERY_TRACE '+JSON.stringify({precommit:!!proof.precommit,trace:recoveryTrace,body:await page.locator('body').innerText()}));throw error;}
    assert.equal(await registrationIntents.countDocuments({ownerId}),0);
    assert.equal(await registrationCompletions.countDocuments({ownerId,projectId:proof.projectId}),1);
    assert.equal((await selection.read({token:owner,projectId:proof.vaultId})).activeProjectId,proof.projectId);
@@ -884,10 +905,10 @@ try{
       assert.deepEqual(await entitlement.findOne({principalId:ownerId}),preBalance);
       assert.equal(await registry.countDocuments({projectId:id}),1);
       for(const p of prePrior){const actual=await projects.findOne({_id:p.id});assert.equal(actual.revision,p.revision);assert.deepEqual(actual.state,p.state);}
-      preProof={precommit:true,workerPid:address.pid,projectId:id,count:preCount,consumed:preBalance.consumedUnits,vaultId:selectionVaultId,previousSelection:preSelection.activeProjectId,selectionBefore:preSelection,prior:prePrior};
+      preProof={precommit:true,abandonedSessionId:paused.sessionId,workerPid:address.pid,projectId:id,count:preCount,consumed:preBalance.consumedUnits,vaultId:selectionVaultId,previousSelection:preSelection.activeProjectId,selectionBefore:preSelection,prior:prePrior};
       console.log('GREEN PHYSICAL_CONCURRENT_REGISTRATION_PRECOMMIT_SIGKILL_ROLLBACK');
      }finally{if(preWorker.exitCode===null&&preWorker.signalCode===null)preWorker.kill('SIGKILL');await preExit;for(const p of [preManifest,pauseManifest])try{unlinkSync(p)}catch{}}
-     const preResumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(preProof)},encoding:'utf8',timeout:100000});
+     const preResumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(preProof)},encoding:'utf8',timeout:180000});
      process.stdout.write(preResumed.stdout||'');process.stderr.write(preResumed.stderr||'');assert.equal(preResumed.status,0,preResumed.error?.message||preResumed.stderr);
 
 
@@ -1754,13 +1775,13 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
   assert.equal(restarted.pid,expected.originalPid);
   const mode=process.env.NATIVE_DEFERRED_EXIT_MANIFEST?'NATIVE_CANONICAL_RESTART_COURT':'NATIVE_POST_EXIT_READBACK';
   const {browserCandidate,...restartExpected}=expected;
-  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:260000});
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:380000});
   process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
  }finally{try{unlinkSync(manifest)}catch{}}
  if(!process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
   const deferredManifest='./native-deferred-exit-'+randomUUID()+'.json';
   try{
-   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:380000});
+   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:500000});
    process.stdout.write(deferred.stdout||'');process.stderr.write(deferred.stderr||'');assert.equal(deferred.status,0,deferred.error?.message||deferred.stderr);
   }finally{try{unlinkSync(deferredManifest)}catch{}}
  }

@@ -40,7 +40,7 @@ export function createNativeFilmRegistration({client,states,ledger,bindings,proj
    const changed=await states.updateOne({projectId:vault.projectId,ownerId,revision:vault.revision,ownershipRevision:vault.ownershipRevision,revoked:false},{$set:{revision,state:next}},{session});
    if(changed.modifiedCount!==1)throw Error('vault-registration-conflict');
    await ledger.insertOne({projectId:vault.projectId,ownerId,ownershipRevision:vault.ownershipRevision,revision,operationId:'register:'+projectId,entry:nextEntry,stateDigest:digest(next),fullOutboxDigest:digest(next.durablePublicationOutbox)},{session});
-   await beforeCommit({projectId,ownerId,canonical});
+   await beforeCommit({projectId,ownerId,canonical,session});
    return {ok:true,projectId,replayed:false};
   },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}finally{await session.endSession()}
  }
