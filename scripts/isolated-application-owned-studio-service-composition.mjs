@@ -87,6 +87,19 @@ export function createApplicationOwnedStudioServices({
    return {ok:true,projectId,view:recovered.view};
   }catch{return {ok:false,reason:'native-creation-outcome-unverified'}}finally{creating=false}
  }
+ // The isolated browser route journals an explicit creation request before ownership mint.
+ async function recoverDurableRegistration({projectId}={}){
+  const token=snapshotToken(),epoch=creationEpoch;
+  const intent=await execute('/studio/native-registration-intent',{token,projectId});
+  if(snapshotToken()!==token||creationEpoch!==epoch||intent?.ok!==true)return {ok:false};
+  if(intent.enabled!==true)return projectId?createNativeFilm({projectId,operationId:'browser-route-create-'+projectId}):{ok:true,pending:false};
+  if(!intent.projectId)return {ok:true,pending:false};
+  const result=await createNativeFilm({projectId:intent.projectId,operationId:'browser-route-create-'+intent.projectId});
+  if(!result.ok||snapshotToken()!==token||creationEpoch!==epoch+1)return {ok:false};
+  const finished=await execute('/studio/native-registration-complete',{token,projectId:intent.projectId});
+  if(snapshotToken()!==token||creationEpoch!==epoch+1||finished?.ok!==true)return {ok:false};
+  return {...result,pending:true};
+ }
  // A newly authenticated session supplies no old turn, fence or operation ID.
  // The server reconstructs the committed writer from its own durable records.
  async function resumeNativeConversation({projectId}={}){
@@ -172,7 +185,7 @@ export function createApplicationOwnedStudioServices({
   creationEpoch++;pending=null;applicationSecondFilm.invalidate();continuity.invalidate();
  };
  return Object.freeze({
-  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,submitNativeConversation,resumeNativeConversation,cancelNativeUncommittedConversation,
+  studioServices,applicationSecondFilm,recoveryServices,createNativeFilm,recoverDurableRegistration,submitNativeConversation,resumeNativeConversation,cancelNativeUncommittedConversation,
   getSelection:()=>selection.getSnapshot(),getContinuity:()=>continuity.getSnapshot(),
   invalidate
  });

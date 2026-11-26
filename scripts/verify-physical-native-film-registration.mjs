@@ -57,6 +57,8 @@ try{
  let failNextRegistration=false,dropNextRegistrationAck=false,failedRegistrationId=null,droppedRegistrationId=null;
  const canonicalCreatorStates=client.db(mongoose.connection.db.databaseName).collection('movie_mentor_creator_state');
  const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled,beforeCommit:async({projectId,canonical})=>{if(canonical&&failNextRegistration){failNextRegistration=false;failedRegistrationId=projectId;throw Error('isolated-registration-interruption');}}});
+ const registrationIntents=db.collection('native_registration_intents');
+ await registrationIntents.createIndex({ownerId:1},{unique:true});
  const receipts=db.collection('native_conversation_receipts');
  await receipts.createIndex({projectId:1,operationId:1},{unique:true});await receipts.createIndex({projectId:1,creatorTurnId:1},{unique:true});
  const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
@@ -67,6 +69,29 @@ try{
   catch(error){if(error.message!=='isolated-registration-interruption')throw error;return res.json({ok:false,reason:'isolated-registration-interruption'});}
   if(dropNextRegistrationAck&&result.ok&&!result.replayed){dropNextRegistrationAck=false;droppedRegistrationId=result.projectId;res.socket.destroy();return;}
   return res.json(result);
+ });
+ app.post('/studio/native-registration-intent',async(req,res)=>{
+  const ownerId=authenticate(req.get('authorization')?.replace(/^Bearer /,''));
+  if(!ownerId)return res.json({ok:false});
+  if(!canonicalRegistrationEnabled)return res.json({ok:true,enabled:false});
+  const projectId=req.body.projectId;
+  if(projectId!==undefined){
+   if(typeof projectId!=='string'||!/^movie-project-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId))return res.json({ok:false});
+   await registrationIntents.updateOne({ownerId},{$setOnInsert:{ownerId,projectId,createdAt:new Date()}},{upsert:true});
+  }
+  const intent=await registrationIntents.findOne({ownerId});
+  return res.json({ok:true,enabled:true,...(intent?{projectId:intent.projectId}:{})});
+ });
+ app.post('/studio/native-registration-complete',async(req,res)=>{
+  const token=req.get('authorization')?.replace(/^Bearer /,''),ownerId=authenticate(token),projectId=req.body.projectId;
+  if(!ownerId||!canonicalRegistrationEnabled||typeof projectId!=='string')return res.json({ok:false});
+  const binding=await bindings.findOne({ownerId,revoked:false});
+  if(!binding)return res.json({ok:false});
+  const selected=await selection.read({token,projectId:binding.vaultId});
+  const proof=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:ownerId},projectId});
+  if(!selected.ok||selected.activeProjectId!==projectId||proof?.authorized!==true||!await projects.findOne({_id:projectId,ownerId})||!await canonicalCreatorStates.findOne({projectId}))return res.json({ok:false});
+  await registrationIntents.deleteOne({ownerId,projectId});
+  return res.json({ok:true});
  });
  app.post('/studio/selection-vault',async(req,res)=>res.json(await vaults.resolve({token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
@@ -377,10 +402,10 @@ try{
      let ready=false;for(let i=0;i<100;i++){try{if((await fetch(url)).ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,150))}
      assert.ok(ready,output);
      const {chromium}=await import('playwright');freshBrowser=await chromium.launch({headless:true});
-     const page=await freshBrowser.newPage();
+     let page=await freshBrowser.newPage();
      const signIn=async()=>{await page.goto(url);await page.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});await page.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)};
      await signIn();
-     const region=page.getByLabel('Native cockpit conversation'),transcript=region.getByLabel('Committed conversation transcript'),composer=region.getByPlaceholder("Tell Movie Mentor what's on your mind...");
+     let region=page.getByLabel('Native cockpit conversation'),transcript=region.getByLabel('Committed conversation transcript'),composer=region.getByPlaceholder("Tell Movie Mentor what's on your mind...");
      await transcript.getByText(creatorMessage.text,{exact:true}).waitFor({timeout:15000});
      const previous=await projects.findOne({_id:expected.projectId});
      assert.deepEqual(previous.state.conversationMessages,continued.view.conversationMessages);
@@ -574,6 +599,45 @@ try{
      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,registrationBalance.consumedUnits+1);
      assert.equal(providerRequests.length,registrationCalls+5);
      console.log('GREEN PHYSICAL_CANONICAL_REGISTRATION_INTERRUPTION_BROWSER_CONTINUATION_AND_RELOAD');
+     const terminationBalance=await entitlement.findOne({principalId:ownerId}),terminationCalls=providerRequests.length,terminationCount=await projects.countDocuments({ownerId});
+     dropNextRegistrationAck=true;
+     await page.getByRole('button',{name:'Create new movie'}).click();
+     await page.getByText('Movie recovery unavailable',{exact:true}).waitFor({timeout:15000});
+     assert.equal(dropNextRegistrationAck,false);
+     const terminatedId=droppedRegistrationId;
+     assert.notEqual(terminatedId,retryId);
+     const durableIntent=await registrationIntents.findOne({ownerId});
+     assert.equal(durableIntent.projectId,terminatedId);
+     const terminatedProject=await projects.findOne({_id:terminatedId}),terminatedCanonical=await canonicalCreatorStates.findOne({projectId:terminatedId});
+     assert.ok(terminatedProject&&terminatedCanonical);
+     const denied=await transport({path:'/studio/native-registration-intent',token:foreign,body:{}});
+     assert.notEqual(denied.projectId,terminatedId);
+     await freshBrowser.close();
+     freshBrowser=await chromium.launch({headless:true});
+     page=await freshBrowser.newPage();
+     region=page.getByLabel('Native cockpit conversation');transcript=region.getByLabel('Committed conversation transcript');composer=region.getByPlaceholder("Tell Movie Mentor what's on your mind...");
+     await signIn();
+     await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,terminatedId);
+     assert.equal(await registrationIntents.countDocuments({ownerId}),0);
+     assert.deepEqual(await projects.findOne({_id:terminatedId}),terminatedProject);
+     assert.deepEqual(await canonicalCreatorStates.findOne({projectId:terminatedId}),terminatedCanonical);
+     assert.equal(await projects.countDocuments({ownerId}),terminationCount+1);
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:terminatedId}),1);
+     assert.equal(await provenance.ledger.countDocuments({projectId:terminatedId}),1);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),terminationBalance);
+     assert.equal(providerRequests.length,terminationCalls);
+     console.log('GREEN PHYSICAL_DURABLE_REGISTRATION_FRESH_BROWSER_IDENTITY_RECOVERY');
+     const terminationText='Fresh browser registration recovery '+randomUUID();
+     const terminationAfter=await submitBrowserTurn(terminatedId,terminatedProject,terminationText);
+     await signIn();
+     await transcript.getByText(terminationText,{exact:true}).waitFor({timeout:15000});
+     assert.deepEqual(await projects.findOne({_id:terminatedId}),terminationAfter);
+     for(const [id,prior] of [[retryId,retryAfter],[newId,newAfter],[expected.projectId,firstAfter],[secondId,secondAfter]])assert.deepEqual(await projects.findOne({_id:id}),prior);
+     assert.equal(await receipts.countDocuments({projectId:terminatedId}),1);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,terminationBalance.consumedUnits+1);
+     assert.equal(providerRequests.length,terminationCalls+5);
+     console.log('GREEN PHYSICAL_DURABLE_REGISTRATION_FRESH_BROWSER_CONTINUATION_AND_RELOAD');
+
 
 
 
@@ -823,7 +887,7 @@ try{
 const transport=async({path,token,body})=>{const r=await fetch('/native-authority'+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('native HTTP '+r.status);return r.json()};
 const factory=createApplicationStudioSessionFactory({transport,resolveSelectionVaultId:async({token})=>{const proof=await transport({path:'/studio/selection-vault',token,body:{}});return proof?.ok===true?proof.vaultId:null},readLocalBytes:()=>JSON.stringify(localStorage.getItem('iband.creator-memory'))});
 export function createRouteSession(auth){const session=factory(auth);globalThis.__nativeRouteSession=session;return session}
-export function RouteWorkspace({nativeApplicationServices:app}){const nativeMovieService=useMemo(()=>({run:async(action,target)=>{const {token,selectionVaultId}=app.recoveryServices();if(action==='admit')return app.applicationSecondFilm.requestEditing({token,selectionVaultId,operationId:'browser-route-admit-'+crypto.randomUUID()});if(action==='submit')return app.submitNativeConversation(target);if(action==='create')return app.createNativeFilm({projectId:target,operationId:'browser-route-create-'+target});const current=await app.studioServices.request('/studio/selection-read',{projectId:selectionVaultId});const id=action==='resume'?current.activeProjectId:target;return current.activeProjectId===id?app.resumeNativeConversation({projectId:id}):app.applicationSecondFilm.choose({token,selectionVaultId,nextProjectId:id,selectionOperationId:'browser-route-switch-'+crypto.randomUUID(),localMemory:{getState:()=>({})}})}}),[app]);return <CreatorWorkspace nativeMovieService={nativeMovieService}/>;}
+export function RouteWorkspace({nativeApplicationServices:app}){const nativeMovieService=useMemo(()=>({run:async(action,target)=>{const {token,selectionVaultId}=app.recoveryServices();if(action==='admit')return app.applicationSecondFilm.requestEditing({token,selectionVaultId,operationId:'browser-route-admit-'+crypto.randomUUID()});if(action==='submit')return app.submitNativeConversation(target);if(action==='create')return app.recoverDurableRegistration({projectId:target});if(action==='resume'){const recovery=await app.recoverDurableRegistration();if(!recovery.ok||recovery.pending)return recovery;}const current=await app.studioServices.request('/studio/selection-read',{projectId:selectionVaultId});const id=action==='resume'?current.activeProjectId:target;return current.activeProjectId===id?app.resumeNativeConversation({projectId:id}):app.applicationSecondFilm.choose({token,selectionVaultId,nextProjectId:id,selectionOperationId:'browser-route-switch-'+crypto.randomUUID(),localMemory:{getState:()=>({})}})}}),[app]);return <CreatorWorkspace nativeMovieService={nativeMovieService}/>;}
 globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSignedIn:true,getToken:async()=>globalThis.__nativeToken});globalThis.__nativeSignOut=()=>clearMovieMentorCreatorAuthState();history.replaceState({},'', '/studio');createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>);`);
    // Vite proxy config is set before restarting the disposable browser server.
    vite.kill();await new Promise(resolve=>{if(vite.exitCode!==null||vite.signalCode!==null)resolve();else vite.once('exit',resolve)});
