@@ -355,7 +355,7 @@ try{
   assert.notEqual(process.pid,proof.workerPid);
   const transport=async({path,token,body})=>{const r=await fetch('http://127.0.0.1:'+server.address().port+path,{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(body)});return r.json()};
   const {providerServer,providerRequests}=await startIsolatedProvider();
-  let executionServer,browser,vite;
+  let executionServer,browser,peerBrowser,vite;
   const candidate=JSON.parse(readFileSync(process.env.NATIVE_RESTART_BROWSER_MANIFEST,'utf8')).browserCandidate;
   const root='../frontend/',base=candidate.base,config=root+base+'.config.mjs';
   try{
@@ -405,7 +405,39 @@ try{
      }
      console.log('PHYSICAL_PRECOMMIT_ABANDONED_TRANSACTION_REAPED');
     }
-    await signIn();
+    let peer,peerSignIn;
+    if(proof.concurrent){
+     peerBrowser=await chromium.launch({headless:true});peer=await peerBrowser.newPage();
+     peerSignIn=async()=>{await peer.goto(url);await peer.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});await peer.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)};
+     // Capture both real intent responses before either browser proceeds.
+     const intentSeen=new Set(),registrationSeen=new Set(),completionSeen=new Set(),completionResults=[];
+     let releaseIntent,releaseRegistration,releaseCompletion;
+     const intentBarrier=new Promise(r=>releaseIntent=r),registrationBarrier=new Promise(r=>releaseRegistration=r),completionBarrier=new Promise(r=>releaseCompletion=r);
+     for(const [label,p] of [['A',page],['B',peer]]){
+      await p.route('**/native-authority/studio/native-registration-intent',async route=>{
+       const response=await route.fetch(),body=await response.json();
+       if(body.projectId===proof.projectId&&!intentSeen.has(label)){intentSeen.add(label);if(intentSeen.size===2)releaseIntent();await intentBarrier;}
+       await route.fulfill({response});
+      });
+      await p.route('**/native-authority/studio/native-film-register',async route=>{
+       assert.equal(route.request().postDataJSON().projectId,proof.projectId);
+       if(!registrationSeen.has(label)){registrationSeen.add(label);if(registrationSeen.size===2)releaseRegistration();await registrationBarrier;}
+       await route.continue();
+      });
+      await p.route('**/native-authority/studio/native-registration-complete',async route=>{
+       assert.equal(route.request().postDataJSON().projectId,proof.projectId);
+       if(!completionSeen.has(label)){completionSeen.add(label);if(completionSeen.size===2)releaseCompletion();await completionBarrier;}
+       const response=await route.fetch(),body=await response.json();completionResults.push({label,...body});await route.fulfill({response});
+      });
+     }
+     await Promise.all([signIn(),peerSignIn()]);
+     try{await Promise.all([page,peer].map(p=>p.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,proof.projectId,{timeout:35000})));}
+     catch(error){console.error('PHYSICAL_CONCURRENT_PRECOMMIT_RECOVERY_TRACE '+JSON.stringify({intent:[...intentSeen],registration:[...registrationSeen],completion:[...completionSeen],completionResults,trace:recoveryTrace,bodies:await Promise.all([page,peer].map(p=>p.locator('body').innerText()))}));throw error;}
+     assert.equal(intentSeen.size,2);assert.equal(registrationSeen.size,2);assert.equal(completionSeen.size,2);
+     assert.equal(completionResults.filter(r=>r.ok&&r.replayed===false).length,1);
+     assert.ok(completionResults.some(r=>r.ok&&r.replayed===true));
+     for(const p of [page,peer])await p.unrouteAll({behavior:'wait'});
+    }else await signIn();
     try{await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,proof.projectId);}
     catch(error){console.error('PHYSICAL_REGISTRATION_RECOVERY_TRACE '+JSON.stringify({precommit:!!proof.precommit,trace:recoveryTrace,body:await page.locator('body').innerText()}));throw error;}
    assert.equal(await registrationIntents.countDocuments({ownerId}),0);
@@ -422,7 +454,19 @@ try{
     const selected=await selection.read({token:owner,projectId:proof.vaultId});
     assert.equal(selected.revision,proof.selectionBefore.revision+2);
     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,proof.consumed);
-    console.log('GREEN PHYSICAL_PRECOMMIT_REGISTRATION_FRESH_PROCESS_EXACT_RETRY');
+    if(proof.concurrent){
+     const vault=await gate.states.findOne({projectId:proof.vaultId,ownerId,revoked:false});
+     assert.equal(vault.state.content.projects.filter(p=>p.id===proof.projectId&&p.ownerId===ownerId).length,1);
+     const selectionSnapshot=await selection.read({token:owner,projectId:proof.vaultId});
+     assert.equal((await transport({path:'/studio/native-registration-complete',token:owner,body:{projectId:proof.projectId}})).replayed,true);
+     assert.equal((await transport({path:'/studio/native-registration-complete',token:foreign,body:{projectId:proof.projectId}})).ok,false);
+     assert.equal((await transport({path:'/studio/read',token:foreign,body:{projectId:proof.projectId}})).ok,false);
+     assert.equal((await transport({path:'/studio/native-execution-initiate',token:foreign,body:{projectId:proof.projectId,selectionVaultId:proof.vaultId}})).ok,false);
+     assert.equal((await transport({path:'/studio/native-registration-complete',token:owner,body:{projectId:proof.previousSelection}})).ok,false);
+     assert.deepEqual(await selection.read({token:owner,projectId:proof.vaultId}),selectionSnapshot);
+     assert.equal(providerRequests.length,0);
+     console.log('GREEN PHYSICAL_CONCURRENT_PRECOMMIT_BROWSER_PROVISIONING_AND_COMPLETION_REPLAY');
+    }else console.log('GREEN PHYSICAL_PRECOMMIT_REGISTRATION_FRESH_PROCESS_EXACT_RETRY');
    }else console.log('GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_BROWSER_RECOVERY');
    const before=await projects.findOne({_id:proof.projectId});
    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
@@ -437,8 +481,30 @@ try{
    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),1);
    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,proof.consumed+1);assert.equal(providerRequests.length,5);
    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
-   console.log(proof.precommit?'GREEN PHYSICAL_PRECOMMIT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD':'GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_CONTINUATION_AND_RELOAD');
-  }finally{if(browser)await browser.close();if(vite)vite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
+   if(proof.concurrent){
+    // The second independent browser must recover the first durable settlement,
+    // then author its own turn without duplicating the first charge or receipt.
+    await peerSignIn();
+    const peerRegion=peer.getByLabel('Native cockpit conversation'),peerTranscript=peerRegion.getByLabel('Committed conversation transcript');
+    await peerTranscript.getByText(message,{exact:true}).waitFor({timeout:15000});
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:1,entitlementRevision:1}});
+    await peer.getByRole('button',{name:'Request native writing'}).click();await peer.getByText('Server writer admitted',{exact:true}).waitFor();
+    const peerMessage='Independent competing browser continuation '+randomUUID();
+    await peerRegion.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(peerMessage);await peerRegion.getByRole('button',{name:'Send',exact:true}).click();await peerTranscript.getByText(peerMessage,{exact:true}).waitFor({timeout:20000});
+    const final=await projects.findOne({_id:proof.projectId});assert.equal(final.revision,after.revision+1);assert.deepEqual(final.state.conversationMessages.slice(0,-2),after.state.conversationMessages);
+    assert.equal(final.state.conversationMessages.at(-2).text,peerMessage);
+    const peerExecution=await mongoose.connection.db.collection('movie_mentor_inference_execution').findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:final.state.conversationMessages.at(-2).id,phase:'settled'});
+    assert.ok(peerExecution);const peerCanonical=await composed.execution.authority.readCanonicalResult({executionId:peerExecution.executionId});assert.equal(peerCanonical.authorized,true);assert.equal(final.state.conversationMessages.at(-1).text,peerCanonical.resultPayload.text);
+    await Promise.all([signIn(),peerSignIn()]);
+    for(const p of [page,peer]){const history=p.getByLabel('Committed conversation transcript');await history.getByText(message,{exact:true}).waitFor({timeout:15000});await history.getByText(peerMessage,{exact:true}).waitFor({timeout:15000});}
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),final);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),2);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,proof.consumed+2);assert.equal(providerRequests.length,10);
+    assert.equal(await registrationCompletions.countDocuments({ownerId,projectId:proof.projectId}),1);
+    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+    console.log('GREEN PHYSICAL_CONCURRENT_PRECOMMIT_BROWSER_DUAL_COMPOSER_SETTLEMENT_AND_RELOAD');
+   }else console.log(proof.precommit?'GREEN PHYSICAL_PRECOMMIT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD':'GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_CONTINUATION_AND_RELOAD');
+  }finally{if(peerBrowser)await peerBrowser.close();if(browser)await browser.close();if(vite)vite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
  }else if(process.env.NATIVE_POST_EXIT_READBACK){
   const expected=JSON.parse(process.env.NATIVE_POST_EXIT_READBACK);
   assert.notEqual(process.pid,expected.originalPid);
@@ -863,7 +929,8 @@ try{
      await freshBrowser.close();freshBrowser=null;freshVite.kill();freshVite=null;
      const resumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(proof)},encoding:'utf8',timeout:60000});
      process.stdout.write(resumed.stdout||'');process.stderr.write(resumed.stderr||'');assert.equal(resumed.status,0,resumed.error?.message||resumed.stderr);
-     // Independent precommit interruption: preserve the completed postcommit court above.
+     // Two independent precommit kills: retain the original single-browser court first.
+     for(const concurrent of [false,true]){
      const preCount=await projects.countDocuments({ownerId}),preBalance=await entitlement.findOne({principalId:ownerId});
      const preSelection=await selection.read({token:owner,projectId:selectionVaultId});
      const preVault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false});
@@ -890,7 +957,7 @@ try{
       assert.equal(await projects.countDocuments({_id:id}),0);
       assert.equal(await canonicalCreatorStates.countDocuments({projectId:id}),0);
       assert.equal(await provenance.ledger.countDocuments({projectId:id}),0);
-      assert.equal((await request('/studio/native-registration-complete',{projectId:proof.projectId})).ok,false);
+      assert.equal((await request('/studio/native-registration-complete',{projectId:preSelection.activeProjectId})).ok,false);
       preWorker.kill('SIGKILL');assert.equal((await preExit).signal,'SIGKILL');
       assert.deepEqual(await Promise.all(requests),[true,true]);
       assert.equal(await projects.countDocuments({ownerId}),preCount);
@@ -905,11 +972,12 @@ try{
       assert.deepEqual(await entitlement.findOne({principalId:ownerId}),preBalance);
       assert.equal(await registry.countDocuments({projectId:id}),1);
       for(const p of prePrior){const actual=await projects.findOne({_id:p.id});assert.equal(actual.revision,p.revision);assert.deepEqual(actual.state,p.state);}
-      preProof={precommit:true,abandonedSessionId:paused.sessionId,workerPid:address.pid,projectId:id,count:preCount,consumed:preBalance.consumedUnits,vaultId:selectionVaultId,previousSelection:preSelection.activeProjectId,selectionBefore:preSelection,prior:prePrior};
-      console.log('GREEN PHYSICAL_CONCURRENT_REGISTRATION_PRECOMMIT_SIGKILL_ROLLBACK');
+      preProof={precommit:true,concurrent,abandonedSessionId:paused.sessionId,workerPid:address.pid,projectId:id,count:preCount,consumed:preBalance.consumedUnits,vaultId:selectionVaultId,previousSelection:preSelection.activeProjectId,selectionBefore:preSelection,prior:prePrior};
+      console.log(concurrent?'GREEN PHYSICAL_CONCURRENT_BROWSER_PRECOMMIT_SIGKILL_ROLLBACK':'GREEN PHYSICAL_CONCURRENT_REGISTRATION_PRECOMMIT_SIGKILL_ROLLBACK');
      }finally{if(preWorker.exitCode===null&&preWorker.signalCode===null)preWorker.kill('SIGKILL');await preExit;for(const p of [preManifest,pauseManifest])try{unlinkSync(p)}catch{}}
      const preResumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(preProof)},encoding:'utf8',timeout:180000});
      process.stdout.write(preResumed.stdout||'');process.stderr.write(preResumed.stderr||'');assert.equal(preResumed.status,0,preResumed.error?.message||preResumed.stderr);
+     }
 
 
 
@@ -1775,13 +1843,13 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
   assert.equal(restarted.pid,expected.originalPid);
   const mode=process.env.NATIVE_DEFERRED_EXIT_MANIFEST?'NATIVE_CANONICAL_RESTART_COURT':'NATIVE_POST_EXIT_READBACK';
   const {browserCandidate,...restartExpected}=expected;
-  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:380000});
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:560000});
   process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
  }finally{try{unlinkSync(manifest)}catch{}}
  if(!process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
   const deferredManifest='./native-deferred-exit-'+randomUUID()+'.json';
   try{
-   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:500000});
+   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:680000});
    process.stdout.write(deferred.stdout||'');process.stderr.write(deferred.stderr||'');assert.equal(deferred.status,0,deferred.error?.message||deferred.stderr);
   }finally{try{unlinkSync(deferredManifest)}catch{}}
  }
