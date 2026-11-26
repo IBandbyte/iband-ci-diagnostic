@@ -293,6 +293,10 @@ try{
       return true;
      },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}catch{return deny()}finally{await session.endSession()}
      if(!bound)return deny();
+     if(process.env.NATIVE_BOUND_WORKER_PAUSE){
+      writeFileSync(process.env.NATIVE_BOUND_WORKER_PAUSE,JSON.stringify({pid:process.pid,projectId,creatorTurnId,fence,requestDigest:digest}));
+      await new Promise(()=>{});
+     }
      const response=await call('/api/movie-mentor/turn',{projectId,creatorTurnId,message:creatorMessage.text,options:{}},token);
      if(response.status!==200||response.body?.success!==true||response.body.status!=='mentor-response-ready'||typeof response.body.text!=='string')return deny();
      const mentorMessage={id:'mentor-'+creatorTurnId,role:'mentor',text:response.body.text,metadata:{backendMetadata:{creatorTurnId}}};
@@ -345,7 +349,16 @@ try{
     return {strict,hash};
  }
  server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject)});
- if(process.env.NATIVE_INITIAL_PROVISION_WORKER){
+ if(process.env.NATIVE_BOUND_WORKER_MANIFEST){
+  const {providerRequests}=await startIsolatedProvider();
+  const composed=await composeCanonicalExecution();
+  await registerCanonicalSubmission(composed.strict,async(...args)=>{
+   assert.fail('paused binding worker must never reach provider dispatch');
+  });
+  assert.equal(providerRequests.length,0);
+  writeFileSync(process.env.NATIVE_BOUND_WORKER_MANIFEST,JSON.stringify({pid:process.pid,port:server.address().port}));
+  await new Promise(()=>{});
+ }else if(process.env.NATIVE_INITIAL_PROVISION_WORKER){
   await canonicalCreatorStates.createIndex({projectId:1},{unique:true,partialFilterExpression:{projectId:{$type:'string'}}});
   canonicalRegistrationEnabled=true;
   writeFileSync(process.env.NATIVE_INITIAL_PROVISION_WORKER,JSON.stringify({pid:process.pid,port:server.address().port}));
@@ -781,6 +794,100 @@ try{
      for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
      console.log('GREEN '+({'cancel-first':'PHYSICAL_CANCEL_FIRST_INITIATION_DENIAL_AND_RETRY','bind-first':'PHYSICAL_BIND_FIRST_CANCELLATION_DENIAL_AND_DURABLE_RECOVERY','concurrent':'PHYSICAL_CONCURRENT_CANCELLATION_INITIATION_ARBITRATION_AND_CONVERGENCE'})[order]);
     }
+    // New physical court: genuine browser request, independent binding worker,
+    // actual SIGKILL after majority commit, then recovery on a separate server.
+    await signIn();
+    const killBefore=await projects.findOne({_id:proof.projectId});
+    const killReceipts=await receipts.countDocuments({projectId:proof.projectId});
+    const killExecutions=await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId});
+    const killBindings=await bindingRows.countDocuments({ownerId,projectId:proof.projectId});
+    const killCalls=providerRequests.length;
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:2,entitlementRevision:1}});
+    const killBalance=await entitlement.findOne({principalId:ownerId});
+    await page.getByRole('button',{name:'Request native writing'}).click();
+    await page.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const killText='Durable binding before dispatch '+randomUUID();
+    const workerManifest='./native-bound-worker-'+randomUUID()+'.json',pauseManifest=workerManifest+'.pause';
+    const workerEnv={...process.env,NATIVE_BOUND_WORKER_MANIFEST:workerManifest,NATIVE_BOUND_WORKER_PAUSE:pauseManifest};
+    delete workerEnv.NATIVE_INITIAL_PROVISION_RECOVERY;
+    const worker=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:workerEnv,stdio:['ignore','pipe','pipe']});
+    let workerOutput='';worker.stdout.on('data',x=>workerOutput+=x);worker.stderr.on('data',x=>workerOutput+=x);
+    const workerExit=new Promise(resolve=>worker.once('close',(status,signal)=>resolve({status,signal})));
+    let captureKill;const killCapture=new Promise(r=>captureKill=r);
+    const readWorkerSignal=async(path)=>{for(let i=0;i<200;i++){try{return JSON.parse(readFileSync(path,'utf8'))}catch{}await new Promise(r=>setTimeout(r,100))}throw Error('binding worker signal missing '+workerOutput)};
+    let killInput;
+    try{
+     const address=await readWorkerSignal(workerManifest);assert.equal(address.pid,worker.pid);
+     let releaseRoute;const heldRoute=new Promise(r=>releaseRoute=r);
+     await page.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      captureKill(route.request().postDataJSON());
+      await heldRoute;
+      await route.abort().catch(()=>{});
+     });
+     await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(killText);
+     await page.getByRole('button',{name:'Send',exact:true}).click();
+     killInput=await Promise.race([killCapture,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('binding SIGKILL capture timeout')),15000);t.unref()})]);
+     const request=fetch('http://127.0.0.1:'+address.port+'/studio/native-execution-initiate',{method:'POST',headers:{authorization:'Bearer '+owner,'content-type':'application/json'},body:JSON.stringify(killInput)}).then(()=>false,()=>true);
+     const paused=await readWorkerSignal(pauseManifest);
+     assert.equal(paused.pid,worker.pid);assert.equal(paused.creatorTurnId,killInput.creatorTurnId);assert.equal(paused.fence,killInput.fence);
+     const binding=await bindingRows.findOne({ownerId,projectId:proof.projectId,creatorTurnId:killInput.creatorTurnId});
+     assert.ok(binding);assert.equal(binding.creatorText,killText);assert.equal(binding.requestDigest,killInput.requestDigest);assert.equal(binding.fence,killInput.fence);
+     assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),killBindings+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),killExecutions);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),killBalance);
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),killBefore);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),killReceipts);
+     worker.kill('SIGKILL');assert.equal((await workerExit).signal,'SIGKILL');assert.equal(await request,true);
+     assert.deepEqual(await bindingRows.findOne({ownerId,projectId:proof.projectId,creatorTurnId:killInput.creatorTurnId}),binding);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),killExecutions);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),killBalance);
+     assert.equal(providerRequests.length,killCalls);
+     console.log('PHYSICAL_BOUND_PRE_DISPATCH_SIGKILL_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,signal:'SIGKILL',turn:killInput.creatorTurnId,fence:killInput.fence,providerEffects:0,charges:0}));
+     console.log('GREEN PHYSICAL_DURABLE_BINDING_PRE_DISPATCH_SIGKILL');
+     const blank=page.goto('about:blank');releaseRoute();await blank;await page.unrouteAll({behavior:'wait'});
+    }finally{if(worker.exitCode===null&&worker.signalCode===null)worker.kill('SIGKILL');await workerExit;for(const f of [workerManifest,pauseManifest])try{unlinkSync(f)}catch{}}
+    const killSelection=await selection.read({token:owner,projectId:proof.vaultId});
+    const killCancel={projectId:proof.projectId,selectionVaultId:proof.vaultId,expectedRevision:killInput.expectedRevision,expectedSelectionRevision:killSelection.revision,confirmCancellation:true};
+    assert.equal((await transport({path:'/studio/native-conversation-cancel',token:owner,body:killCancel})).ok,false);
+    assert.equal((await transport({path:'/studio/native-execution-initiate',token:foreign,body:killInput})).ok,false);
+    // Do not manually resubmit the captured payload: fresh authenticated
+    // browsers must recover the durable creator identity themselves.
+    await Promise.all([signIn(),peerSignIn()]);
+    try{await Promise.all([page,peer].map(p=>p.getByLabel('Committed conversation transcript').getByText(killText,{exact:true}).waitFor({timeout:20000})));}
+    catch(error){console.error('PHYSICAL_BOUND_PRE_DISPATCH_RECOVERY_TRACE '+JSON.stringify({turn:killInput.creatorTurnId,trace:recoveryTrace,bodies:await Promise.all([page,peer].map(p=>p.locator('body').innerText())),executions:await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),providerEffects:providerRequests.length-killCalls}));throw error;}
+    const killAfter=await projects.findOne({_id:proof.projectId});
+    assert.equal(killAfter.revision,killBefore.revision+1);
+    assert.deepEqual(killAfter.state.conversationMessages.slice(0,-2),killBefore.state.conversationMessages);
+    assert.equal(killAfter.state.conversationMessages.at(-2).id,killInput.creatorTurnId);
+    assert.equal(killAfter.state.conversationMessages.at(-2).text,killText);
+    const killRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:killInput.creatorTurnId,phase:'settled'});
+    assert.ok(killRow);const killCanonical=await composed.execution.authority.readCanonicalResult({executionId:killRow.executionId});
+    assert.equal(killCanonical.authorized,true);assert.equal(killAfter.state.conversationMessages.at(-1).text,killCanonical.resultPayload.text);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),killReceipts+1);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),killExecutions+1);
+    assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),killBindings+1);
+    assert.equal(providerRequests.length,killCalls+5);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,killBalance.consumedUnits+1);
+    console.log('GREEN PHYSICAL_BOUND_PRE_DISPATCH_CONCURRENT_BROWSER_RECOVERY');
+    await peer.getByRole('button',{name:'Request native writing'}).click();await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const continuation='After binding worker SIGKILL '+randomUUID();
+    await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(continuation);
+    await peer.getByRole('button',{name:'Send',exact:true}).click();await peer.getByLabel('Committed conversation transcript').getByText(continuation,{exact:true}).waitFor({timeout:20000});
+    const killFinal=await projects.findOne({_id:proof.projectId});assert.equal(killFinal.revision,killAfter.revision+1);assert.deepEqual(killFinal.state.conversationMessages.slice(0,-2),killAfter.state.conversationMessages);
+    assert.equal(killFinal.state.conversationMessages.at(-2).text,continuation);
+    const continuedRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:killFinal.state.conversationMessages.at(-2).id,phase:'settled'});
+    assert.ok(continuedRow);const continuedCanonical=await composed.execution.authority.readCanonicalResult({executionId:continuedRow.executionId});
+    assert.equal(continuedCanonical.authorized,true);assert.equal(killFinal.state.conversationMessages.at(-1).text,continuedCanonical.resultPayload.text);
+    await Promise.all([signIn(),peerSignIn()]);
+    for(const p of [page,peer])for(const txt of [...arbitrationHistory,killText,continuation])await p.getByLabel('Committed conversation transcript').getByText(txt,{exact:true}).waitFor({timeout:15000});
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),killFinal);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),killReceipts+2);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),killExecutions+2);
+    assert.equal(providerRequests.length,killCalls+10);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,killBalance.consumedUnits+2);
+    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+    console.log('GREEN PHYSICAL_BOUND_PRE_DISPATCH_BROWSER_CONTINUATION_AND_RELOAD');
+
 
 
    }else console.log(proof.precommit?'GREEN PHYSICAL_PRECOMMIT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD':'GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_CONTINUATION_AND_RELOAD');
