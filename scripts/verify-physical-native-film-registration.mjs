@@ -804,7 +804,13 @@ try{
       assert.equal(await projects.countDocuments({ownerId}),initialCount+1);
       assert.equal(await projects.countDocuments({_id:proposals.find(p=>p!==id)}),0);
       assert.equal(await registry.countDocuments({projectId:id}),1);
-      assert.deepEqual(await selection.read({token:owner,projectId:selectionVaultId}),initialSelection);
+      // Registration appends one vault membership and provenance entry without changing active selection.
+      const provisionedSelection=await selection.read({token:owner,projectId:selectionVaultId});
+      assert.deepEqual(provisionedSelection,{...initialSelection,revision:initialSelection.revision+1});
+      const provisionedVault=await gate.states.findOne({projectId:selectionVaultId,ownerId,revoked:false});
+      assert.equal(provisionedVault.state.content.projects.filter(p=>p.id===id&&p.ownerId===ownerId).length,1);
+      assert.equal(await provenance.ledger.countDocuments({projectId:selectionVaultId,operationId:'register:'+id}),1);
+      assert.equal(await provenance.ledger.countDocuments({projectId:selectionVaultId,revision:provisionedSelection.revision,operationId:'register:'+id}),1);
       assert.deepEqual(await entitlement.findOne({principalId:ownerId}),initialBalance);
       assert.equal((await request('/studio/native-registration-complete',{projectId:concurrentId})).ok,false);
       assert.equal((await registrationIntents.findOne({ownerId})).projectId,id);
