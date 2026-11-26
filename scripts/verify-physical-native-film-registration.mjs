@@ -54,13 +54,20 @@ try{
  const vaults=createStudioOwnerVaultAuthority({bindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:authenticate,readSelection:selection.read});
  await vaults.initialize();await selection.receipts.createIndex({projectId:1,operationId:1},{unique:true});
  let canonicalRegistrationEnabled=false;
+ let failNextRegistration=false,dropNextRegistrationAck=false,failedRegistrationId=null,droppedRegistrationId=null;
  const canonicalCreatorStates=client.db(mongoose.connection.db.databaseName).collection('movie_mentor_creator_state');
- const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled});
+ const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled,beforeCommit:async({projectId,canonical})=>{if(canonical&&failNextRegistration){failNextRegistration=false;failedRegistrationId=projectId;throw Error('isolated-registration-interruption');}}});
  const receipts=db.collection('native_conversation_receipts');
  await receipts.createIndex({projectId:1,operationId:1},{unique:true});await receipts.createIndex({projectId:1,creatorTurnId:1},{unique:true});
  const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
  const app=express();app.use(express.json());app.use('/api/movie-mentor',createMovieMentorProjectsRouter({nativeProjectCreationAuthority}));
- app.post('/studio/native-film-register',async(req,res)=>res.json(await registration.register({token:req.get('authorization')?.replace(/^Bearer /,''),projectId:req.body.projectId})));
+ app.post('/studio/native-film-register',async(req,res)=>{
+  let result;
+  try{result=await registration.register({token:req.get('authorization')?.replace(/^Bearer /,''),projectId:req.body.projectId});}
+  catch(error){if(error.message!=='isolated-registration-interruption')throw error;return res.json({ok:false,reason:'isolated-registration-interruption'});}
+  if(dropNextRegistrationAck&&result.ok&&!result.replayed){dropNextRegistrationAck=false;droppedRegistrationId=result.projectId;res.socket.destroy();return;}
+  return res.json(result);
+ });
  app.post('/studio/selection-vault',async(req,res)=>res.json(await vaults.resolve({token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-change',async(req,res)=>res.json(await selection.select({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
@@ -508,6 +515,66 @@ try{
      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,beforeCreationBalance.consumedUnits+1);
      assert.equal(providerRequests.length,beforeCreationCalls+5);
      console.log('GREEN PHYSICAL_AUTOMATIC_CANONICAL_MOVIE_PROVISIONING_BROWSER_CONTINUATION_AND_REPLAY');
+     const registrationBalance=await entitlement.findOne({principalId:ownerId}),registrationCalls=providerRequests.length;
+     const vaultBefore=await gate.states.findOne({projectId:selectionVaultId,ownerId});
+     const vaultLedgerBefore=await provenance.ledger.countDocuments({projectId:selectionVaultId});
+     const oldProjects=await projects.countDocuments({ownerId});
+     const createButton=page.getByRole('button',{name:'Create new movie'});
+     const errorMessage=page.getByText('Movie recovery unavailable',{exact:true});
+     failNextRegistration=true;
+     await createButton.click();
+     await errorMessage.waitFor({timeout:15000});
+     assert.equal(failNextRegistration,false);
+     assert.ok(failedRegistrationId);
+     const retryId=failedRegistrationId;
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:retryId}),0);
+     assert.equal(await projects.countDocuments({_id:retryId}),0);
+     assert.equal(await gate.states.countDocuments({projectId:retryId}),0);
+     assert.equal(await provenance.ledger.countDocuments({projectId:retryId}),0);
+     assert.equal(await receipts.countDocuments({projectId:retryId}),0);
+     assert.deepEqual(await gate.states.findOne({projectId:selectionVaultId,ownerId}),vaultBefore);
+     assert.equal(await provenance.ledger.countDocuments({projectId:selectionVaultId}),vaultLedgerBefore);
+     assert.equal(await projects.countDocuments({ownerId}),oldProjects);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),registrationBalance);
+     assert.equal(providerRequests.length,registrationCalls);
+     console.log('GREEN PHYSICAL_CANONICAL_REGISTRATION_PRECOMMIT_ROLLBACK');
+     dropNextRegistrationAck=true;
+     await createButton.click();
+     await errorMessage.waitFor({timeout:15000});
+     assert.equal(dropNextRegistrationAck,false);
+     assert.equal(droppedRegistrationId,retryId);
+     const registeredProject=await projects.findOne({_id:retryId});
+     const registeredCanonical=await canonicalCreatorStates.findOne({projectId:retryId});
+     assert.ok(registeredProject&&registeredCanonical);
+     assert.equal(registeredProject.revision,1);
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:retryId}),1);
+     assert.equal(await projects.countDocuments({ownerId}),oldProjects+1);
+     assert.equal(await provenance.ledger.countDocuments({projectId:retryId}),1);
+     assert.equal(await provenance.ledger.countDocuments({projectId:selectionVaultId,operationId:'register:'+retryId}),1);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),registrationBalance);
+     assert.equal(providerRequests.length,registrationCalls);
+     await createButton.click();
+     await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,retryId);
+     assert.deepEqual(await canonicalCreatorStates.findOne({projectId:retryId}),registeredCanonical);
+     assert.deepEqual(await projects.findOne({_id:retryId}),registeredProject);
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:retryId}),1);
+     assert.equal(await projects.countDocuments({ownerId}),oldProjects+1);
+     assert.equal(await provenance.ledger.countDocuments({projectId:selectionVaultId,operationId:'register:'+retryId}),1);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),registrationBalance);
+     console.log('GREEN PHYSICAL_CANONICAL_REGISTRATION_ACK_LOSS_SAME_ID_RECOVERY');
+     const retryText='Recovered registration composer '+randomUUID();
+     const retryAfter=await submitBrowserTurn(retryId,registeredProject,retryText);
+     await signIn();
+     await transcript.getByText(retryText,{exact:true}).waitFor({timeout:15000});
+     assert.deepEqual(await projects.findOne({_id:retryId}),retryAfter);
+     assert.deepEqual(await projects.findOne({_id:newId}),newAfter);
+     assert.deepEqual(await projects.findOne({_id:expected.projectId}),firstAfter);
+     assert.deepEqual(await projects.findOne({_id:secondId}),secondAfter);
+     assert.equal(await receipts.countDocuments({projectId:retryId}),1);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,registrationBalance.consumedUnits+1);
+     assert.equal(providerRequests.length,registrationCalls+5);
+     console.log('GREEN PHYSICAL_CANONICAL_REGISTRATION_INTERRUPTION_BROWSER_CONTINUATION_AND_RELOAD');
+
 
 
     }finally{if(freshBrowser)await freshBrowser.close();if(freshVite)freshVite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}}
