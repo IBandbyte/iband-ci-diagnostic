@@ -49,7 +49,11 @@ try{
  }});
  const provenance=createProvenanceAuthority({db,client,publicKey});
  const gate=createWritableAdmissionGate({db,client,publicKey});
- const selection=createServerProjectSelectionAuthority({gate,db,client});
+ const registrationIntents=db.collection('native_registration_intents');
+ const registrationCompletions=db.collection('native_registration_completions');
+ await registrationIntents.createIndex({ownerId:1},{unique:true});
+ await registrationCompletions.createIndex({ownerId:1,projectId:1},{unique:true});
+ const selection=createServerProjectSelectionAuthority({gate,db,client,registrationIntents});
  const bindings=db.collection('studio_owner_vault_bindings'),projects=db.collection('projects');
  const vaults=createStudioOwnerVaultAuthority({bindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:authenticate,readSelection:selection.read});
  await vaults.initialize();await selection.receipts.createIndex({projectId:1,operationId:1},{unique:true});
@@ -57,8 +61,6 @@ try{
  let failNextRegistration=false,dropNextRegistrationAck=false,failedRegistrationId=null,droppedRegistrationId=null;
  const canonicalCreatorStates=client.db(mongoose.connection.db.databaseName).collection('movie_mentor_creator_state');
  const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled,beforeCommit:async({projectId,canonical})=>{if(canonical&&failNextRegistration){failNextRegistration=false;failedRegistrationId=projectId;throw Error('isolated-registration-interruption');}}});
- const registrationIntents=db.collection('native_registration_intents');
- await registrationIntents.createIndex({ownerId:1},{unique:true});
  const receipts=db.collection('native_conversation_receipts');
  await receipts.createIndex({projectId:1,operationId:1},{unique:true});await receipts.createIndex({projectId:1,creatorTurnId:1},{unique:true});
  const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
@@ -77,7 +79,7 @@ try{
   const projectId=req.body.projectId;
   if(projectId!==undefined){
    if(typeof projectId!=='string'||!/^movie-project-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId))return res.json({ok:false});
-   await registrationIntents.updateOne({ownerId},{$setOnInsert:{ownerId,projectId,createdAt:new Date()}},{upsert:true});
+   try{await registrationIntents.updateOne({ownerId},{$setOnInsert:{ownerId,projectId,createdAt:new Date()}},{upsert:true});}catch(e){if(e.code!==11000)throw e;}
   }
   const intent=await registrationIntents.findOne({ownerId});
   return res.json({ok:true,enabled:true,...(intent?{projectId:intent.projectId}:{})});
@@ -90,8 +92,23 @@ try{
   const selected=await selection.read({token,projectId:binding.vaultId});
   const proof=await ownershipAuthority.authorizeProject({principal:{authenticated:true,principalId:ownerId},projectId});
   if(!selected.ok||selected.activeProjectId!==projectId||proof?.authorized!==true||!await projects.findOne({_id:projectId,ownerId})||!await canonicalCreatorStates.findOne({projectId}))return res.json({ok:false});
-  await registrationIntents.deleteOne({ownerId,projectId});
-  return res.json({ok:true});
+  const session=client.startSession();
+  try{
+   const result=await session.withTransaction(async()=>{
+    const pending=await registrationIntents.findOne({ownerId},{session});
+    if(pending&&pending.projectId!==projectId)return {ok:false,reason:'newer-registration-pending'};
+    const vault=await gate.states.findOne({projectId:binding.vaultId,ownerId,revoked:false},{session});
+    if(vault?.state?.content?.activeProjectId!==projectId)return {ok:false,reason:'registration-selection-changed'};
+    const fence=await gate.states.updateOne({_id:vault._id,revision:vault.revision},{$inc:{registrationCompletionFence:1}},{session});
+    if(fence.modifiedCount!==1)throw Error('registration-completion-fence-conflict');
+    if(!pending)return await registrationCompletions.findOne({ownerId,projectId},{session})?{ok:true,replayed:true}:{ok:false};
+    await registrationCompletions.insertOne({ownerId,projectId,completedAt:new Date()},{session});
+    const cleared=await registrationIntents.deleteOne({_id:pending._id},{session});
+    if(cleared.deletedCount!==1)throw Error('registration-completion-conflict');
+    return {ok:true,replayed:false};
+   },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
+   return res.json(result);
+  }finally{await session.endSession()}
  });
  app.post('/studio/selection-vault',async(req,res)=>res.json(await vaults.resolve({token:req.get('authorization')?.replace(/^Bearer /,'')})));
  app.post('/studio/selection-read',async(req,res)=>res.json(await selection.read({...req.body,token:req.get('authorization')?.replace(/^Bearer /,'')})));
@@ -637,6 +654,63 @@ try{
      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,terminationBalance.consumedUnits+1);
      assert.equal(providerRequests.length,terminationCalls+5);
      console.log('GREEN PHYSICAL_DURABLE_REGISTRATION_FRESH_BROWSER_CONTINUATION_AND_RELOAD');
+     const concurrentBalance=await entitlement.findOne({principalId:ownerId}),concurrentCalls=providerRequests.length,concurrentCount=await projects.countDocuments({ownerId});
+     dropNextRegistrationAck=true;
+     await page.getByRole('button',{name:'Create new movie'}).click();
+     await page.getByText('Movie recovery unavailable',{exact:true}).waitFor({timeout:15000});
+     const concurrentId=droppedRegistrationId;
+     assert.equal((await registrationIntents.findOne({ownerId})).projectId,concurrentId);
+     const concurrentInitial=await projects.findOne({_id:concurrentId});
+     const selectionBefore=await selection.read({token:owner,projectId:selectionVaultId});
+     const secondBrowser=await chromium.launch({headless:true});
+     try{
+      const other=await secondBrowser.newPage();
+      // Hold both intent responses until both independently authenticated requests have read the pending identity.
+      let arrivals=0,release;const barrier=new Promise(r=>release=r);
+      const route=async(route)=>{const response=await route.fetch();const payload=await response.json();if(payload.projectId===concurrentId){arrivals++;if(arrivals===2)release();await barrier;}await route.fulfill({response});};
+      await page.route('**/native-authority/studio/native-registration-intent',route);
+      await other.route('**/native-authority/studio/native-registration-intent',route);
+      await Promise.all([signIn(),(async()=>{await other.goto(url);await other.getByRole('status',{name:'Studio authority locked'}).waitFor({timeout:15000});await other.evaluate(token=>{globalThis.__nativeToken=token;globalThis.__nativeSignIn()},owner)})()]);
+      await Promise.all([page,other].map(p=>p.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,concurrentId,{timeout:20000})));
+      assert.equal(arrivals,2);
+      await page.unroute('**/native-authority/studio/native-registration-intent',route);
+      assert.equal(await registrationIntents.countDocuments({ownerId}),0);
+      assert.equal(await registrationCompletions.countDocuments({ownerId,projectId:concurrentId}),1);
+      assert.equal(await canonicalCreatorStates.countDocuments({projectId:concurrentId}),1);
+      assert.equal(await projects.countDocuments({ownerId}),concurrentCount+1);
+      assert.equal(await provenance.ledger.countDocuments({projectId:concurrentId}),1);
+      const selected=await selection.read({token:owner,projectId:selectionVaultId});
+      assert.equal(selected.activeProjectId,concurrentId);
+      assert.equal(selected.revision,selectionBefore.revision+1);
+      const nextId='movie-project-'+randomUUID();
+      assert.equal((await transport({path:'/studio/native-registration-intent',token:owner,body:{projectId:nextId}})).projectId,nextId);
+      const newer=await registrationIntents.findOne({ownerId});
+      assert.equal((await transport({path:'/studio/native-registration-complete',token:owner,body:{projectId:concurrentId}})).ok,false);
+      assert.deepEqual(await registrationIntents.findOne({ownerId}),newer);
+      assert.equal((await transport({path:'/studio/selection-change',token:owner,body:{projectId:selectionVaultId,operationId:'browser-route-create-'+concurrentId,expectedRevision:selected.revision,nextActiveProjectId:concurrentId}})).ok,false);
+      assert.deepEqual(await selection.read({token:owner,projectId:selectionVaultId}),selected);
+      assert.deepEqual(await entitlement.findOne({principalId:ownerId}),concurrentBalance);
+      assert.equal(providerRequests.length,concurrentCalls);
+      console.log('GREEN PHYSICAL_CONCURRENT_DURABLE_REGISTRATION_COMPLETION_AND_STALE_DENIAL');
+      // Complete the newer intent through the normal authenticated browser route.
+      await signIn();
+      await page.waitForFunction(id=>document.querySelector('[aria-label="Verified native movie"]')?.textContent===id,nextId);
+      assert.equal(await registrationIntents.countDocuments({ownerId}),0);
+      assert.equal(await registrationCompletions.countDocuments({ownerId,projectId:nextId}),1);
+      assert.equal(await projects.countDocuments({ownerId}),concurrentCount+2);
+      await choose(concurrentId,[]);
+      const concurrentText='Concurrent recovered registration '+randomUUID();
+      const concurrentAfter=await submitBrowserTurn(concurrentId,concurrentInitial,concurrentText);
+      await signIn();
+      await transcript.getByText(concurrentText,{exact:true}).waitFor({timeout:15000});
+      assert.deepEqual(await projects.findOne({_id:concurrentId}),concurrentAfter);
+      for(const [id,prior] of [[terminatedId,terminationAfter],[retryId,retryAfter],[newId,newAfter],[expected.projectId,firstAfter],[secondId,secondAfter]])assert.deepEqual(await projects.findOne({_id:id}),prior);
+      assert.equal(await receipts.countDocuments({projectId:concurrentId}),1);
+      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,concurrentBalance.consumedUnits+1);
+      assert.equal(providerRequests.length,concurrentCalls+5);
+      console.log('GREEN PHYSICAL_CONCURRENT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD');
+     }finally{await secondBrowser.close();}
+
 
 
 

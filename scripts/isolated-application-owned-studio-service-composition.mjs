@@ -80,7 +80,11 @@ export function createApplicationOwnedStudioServices({
    if(!current()||!loaded.ok)return {ok:false,reason:'selection-unverified'};
    if(loaded.selection.activeProjectId!==projectId){
     const changed=await selection.change({token,projectId:selectionVaultId,operationId,nextActiveProjectId:projectId});
-    if(!current()||!changed.ok)return {ok:false,reason:'native-selection-unverified'};
+    if(!current())return {ok:false,reason:'native-selection-unverified'};
+    if(!changed.ok){
+     const reread=await selection.load({token,projectId:selectionVaultId});
+     if(!current()||!reread.ok||reread.selection.activeProjectId!==projectId)return {ok:false,reason:'native-selection-unverified'};
+    }
    }
    const recovered=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
    if(!current()||!recovered.ok||recovered.view?.projectId!==projectId||recovered.view?.writable!==false)return {ok:false,reason:'native-recovery-unverified'};
@@ -92,7 +96,7 @@ export function createApplicationOwnedStudioServices({
   const token=snapshotToken(),epoch=creationEpoch;
   const intent=await execute('/studio/native-registration-intent',{token,projectId});
   if(snapshotToken()!==token||creationEpoch!==epoch||intent?.ok!==true)return {ok:false};
-  if(intent.enabled!==true)return projectId?createNativeFilm({projectId,operationId:'browser-route-create-'+projectId}):{ok:true,pending:false};
+  if(intent.enabled!==true)return projectId?createNativeFilm({projectId,operationId:'legacy-browser-route-create-'+projectId}):{ok:true,pending:false};
   if(!intent.projectId)return {ok:true,pending:false};
   const result=await createNativeFilm({projectId:intent.projectId,operationId:'browser-route-create-'+intent.projectId});
   if(!result.ok||snapshotToken()!==token||creationEpoch!==epoch+1)return {ok:false};

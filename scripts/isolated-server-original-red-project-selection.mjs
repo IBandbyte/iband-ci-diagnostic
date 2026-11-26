@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 // Isolated server-owned alternative to the original frontend's denied local
 // active-project mutation. The browser's publication outbox is NEVER a grant.
-export function createServerProjectSelectionAuthority({gate,db,client,beforeSelectionCommit=async()=>{}}={}){
+export function createServerProjectSelectionAuthority({gate,db,client,beforeSelectionCommit=async()=>{},registrationIntents=null}={}){
  if(!gate?.authenticateOwner||!db||!client||typeof beforeSelectionCommit!=='function')throw Error('server-selection-dependencies-required');
  const states=db.collection('provenance_states'),receipts=db.collection('server_project_selection_receipts');
  async function select({token,projectId,operationId,expectedRevision,nextActiveProjectId}={}){
@@ -14,6 +14,12 @@ export function createServerProjectSelectionAuthority({gate,db,client,beforeSele
     // Reset verdict on transaction retry; replay must contend with revocation
     // on the same durable document, not return from a stale snapshot.
     verdict={ok:false,reason:'authority-unverified'};
+    if(registrationIntents&&operationId.startsWith('browser-route-create-')){
+     const intent=await registrationIntents.findOne({ownerId,projectId:nextActiveProjectId},{session});
+     if(!intent)return;
+     const fenced=await registrationIntents.updateOne({_id:intent._id},{$inc:{selectionFence:1}},{session});
+     if(fenced.modifiedCount!==1)throw Error('registration-intent-selection-conflict');
+    }
     const original=await receipts.findOne({projectId,operationId},{session});
     if(original){
      if(original.ownerId===ownerId&&original.expectedRevision===expectedRevision&&
