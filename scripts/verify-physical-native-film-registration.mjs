@@ -53,7 +53,9 @@ try{
  const bindings=db.collection('studio_owner_vault_bindings'),projects=db.collection('projects');
  const vaults=createStudioOwnerVaultAuthority({bindings,states:provenance.states,ledger:provenance.ledger,client,authenticateOwner:authenticate,readSelection:selection.read});
  await vaults.initialize();await selection.receipts.createIndex({projectId:1,operationId:1},{unique:true});
- const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate});
+ let canonicalRegistrationEnabled=false;
+ const canonicalCreatorStates=client.db(mongoose.connection.db.databaseName).collection('movie_mentor_creator_state');
+ const registration=createNativeFilmRegistration({client,states:provenance.states,ledger:provenance.ledger,bindings,projects,ownershipAuthority,authenticateOwner:authenticate,canonicalCreatorStates,canonicalEnabled:()=>canonicalRegistrationEnabled});
  const receipts=db.collection('native_conversation_receipts');
  await receipts.createIndex({projectId:1,operationId:1},{unique:true});await receipts.createIndex({projectId:1,creatorTurnId:1},{unique:true});
  const settlement=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts});
@@ -196,6 +198,8 @@ try{
  return {strict,hash,call,execution,server:executionServer};
  }
  async function registerCanonicalSubmission(strict,call){
+    await canonicalCreatorStates.createIndex({projectId:1},{unique:true,partialFilterExpression:{projectId:{$type:'string'}}});
+    canonicalRegistrationEnabled=true;
     const strictBindings=db.collection('native_execution_initiation_bindings');
     await strictBindings.createIndex({ownerId:1,projectId:1,creatorTurnId:1},{unique:true});
     await strictBindings.createIndex({ownerId:1,projectId:1,fence:1},{unique:true});
@@ -466,6 +470,45 @@ try{
      assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,expected.consumedUnits+4);
      assert.equal(providerRequests.length,20);
      console.log('GREEN PHYSICAL_POST_RESTART_TWO_FILM_BROWSER_CONTINUITY_AND_ACCOUNTING');
+     const beforeCreationBalance=await entitlement.findOne({principalId:ownerId}),beforeCreationCalls=providerRequests.length;
+     await page.getByRole('button',{name:'Create new movie'}).click();
+     await page.waitForFunction(previous=>{const id=document.querySelector('[aria-label="Verified native movie"]')?.textContent;return id?.startsWith('movie-project-')&&id!==previous},expected.projectId);
+     const newId=await page.getByLabel('Verified native movie').textContent();
+     assert.notEqual(newId,secondId);
+     const initial=await projects.findOne({_id:newId});
+     assert.equal(initial.revision,1);
+     assert.deepEqual(initial.state.conversationMessages,[]);
+     assert.equal((await gate.states.findOne({projectId:newId,ownerId})).strictCanonicalConversation,true);
+     const provisioned=await canonicalCreatorStates.findOne({projectId:newId});
+     assert.ok(provisioned);
+     assert.equal(provisioned.revision,0);
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:newId}),1);
+     assert.equal(await receipts.countDocuments({projectId:newId}),0);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),beforeCreationBalance);
+     assert.equal(providerRequests.length,beforeCreationCalls);
+     const replay=await transport({path:'/studio/native-film-register',token:owner,body:{projectId:newId}});
+     assert.equal(replay.ok,true);
+     assert.equal(replay.replayed,true);
+     assert.deepEqual(await canonicalCreatorStates.findOne({projectId:newId}),provisioned);
+     assert.deepEqual(await projects.findOne({_id:newId}),initial);
+     const newText='Automatically provisioned movie '+randomUUID();
+     const newAfter=await submitBrowserTurn(newId,initial,newText);
+     const afterTurnState=await canonicalCreatorStates.findOne({projectId:newId});
+     const replayAfter=await transport({path:'/studio/native-film-register',token:owner,body:{projectId:newId}});
+     assert.equal(replayAfter.ok,true);
+     assert.equal(replayAfter.replayed,true);
+     assert.deepEqual(await canonicalCreatorStates.findOne({projectId:newId}),afterTurnState);
+     assert.equal(await canonicalCreatorStates.countDocuments({projectId:newId}),1);
+     await signIn();
+     await transcript.getByText(newText,{exact:true}).waitFor({timeout:15000});
+     assert.deepEqual(await projects.findOne({_id:newId}),newAfter);
+     assert.deepEqual(await projects.findOne({_id:expected.projectId}),firstAfter);
+     assert.deepEqual(await projects.findOne({_id:secondId}),secondAfter);
+     assert.equal(await receipts.countDocuments({projectId:newId}),1);
+     assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,beforeCreationBalance.consumedUnits+1);
+     assert.equal(providerRequests.length,beforeCreationCalls+5);
+     console.log('GREEN PHYSICAL_AUTOMATIC_CANONICAL_MOVIE_PROVISIONING_BROWSER_CONTINUATION_AND_REPLAY');
+
 
     }finally{if(freshBrowser)await freshBrowser.close();if(freshVite)freshVite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}}
 

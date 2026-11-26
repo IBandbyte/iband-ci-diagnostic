@@ -1,7 +1,7 @@
 // Diagnostic composition: native registry is the only ownership mint.
 import {createHash,randomUUID} from 'node:crypto';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function createNativeFilmRegistration({client,states,ledger,bindings,projects,ownershipAuthority,authenticateOwner}){
+export function createNativeFilmRegistration({client,states,ledger,bindings,projects,ownershipAuthority,authenticateOwner,canonicalCreatorStates=null,canonicalEnabled=()=>false}){
  async function register({token,projectId}){
   const ownerId=await authenticateOwner(token);
   if(!ownerId||typeof projectId!=='string'||!projectId.startsWith('movie-project-'))return {ok:false};
@@ -21,10 +21,16 @@ export function createNativeFilmRegistration({client,states,ledger,bindings,proj
     return existing.ownerId===ownerId&&existing.revoked===false&&existing.ownershipRevision===proof.ownershipRevision&&p&&vault.state.content.projects.some(x=>x.id===projectId&&x.ownerId===ownerId)?{ok:true,projectId,replayed:true}:{ok:false};
    }
    if(vault.state.content.projects.some(x=>x.id===projectId))return {ok:false};
+   const canonical=canonicalEnabled()===true;
+   if(canonical){
+    if(!canonicalCreatorStates)return {ok:false};
+    const seed=digest({projectId,ownerId,ownershipRevision:proof.ownershipRevision});
+    await canonicalCreatorStates.insertOne({projectId,revision:0,revisionAuthorityReference:'strict-'+seed,creatorStateGeneration:1,creatorStateFingerprint:'strict-fingerprint-'+seed,creatorAuthorityReference:'strict-authority-'+seed,snapshotReference:'strict-snapshot-'+seed,capturedAt:new Date()},{session});
+   }
    const content={scenes:[],conversationMessages:[]};
    const entry={id:randomUUID(),status:'pending',committedStateVersion:1,snapshotDigest:digest({content,revision:1})};
    const state={content,durablePublicationOutbox:[entry]};
-   await states.insertOne({projectId,ownerId,revision:1,ownershipRevision:proof.ownershipRevision,revoked:false,state},{session});
+   await states.insertOne({projectId,ownerId,revision:1,ownershipRevision:proof.ownershipRevision,revoked:false,state,...(canonical?{strictCanonicalConversation:true}:{})},{session});
    await projects.insertOne({_id:projectId,ownerId,revision:1,state:content},{session});
    await ledger.insertOne({projectId,ownerId,ownershipRevision:proof.ownershipRevision,revision:1,operationId:'native-genesis',entry,stateDigest:digest(state),fullOutboxDigest:digest(state.durablePublicationOutbox)},{session});
    const nextContent={...vault.state.content,projects:[...vault.state.content.projects,{id:projectId,ownerId}]};
