@@ -513,7 +513,7 @@ try{
     for(const [label,p] of [['A',page],['B',peer]]){
      await p.route('**/native-authority/studio/admit-publication',async route=>{
       admissionSeen.add(label);if(admissionSeen.size===2)releaseAdmission();await admissionBarrier;
-      const response=await route.fetch(),body=await response.json();admissions.push({label,body});await route.fulfill({response});
+      const response=await route.fetch(),body=await response.json();admissions.push({label,body,request:route.request().postDataJSON()});await route.fulfill({response});
      });
     }
     await Promise.all([page,peer].map(p=>p.getByRole('button',{name:'Request native writing'}).click()));
@@ -530,6 +530,7 @@ try{
      if(await composer.isEnabled())enabled.push({label,p,composer,text:'Competing genuine creator '+label+' '+randomUUID()});
     }
     assert.ok(enabled.length>=1);
+    console.log('PHYSICAL_WRITER_CONTENTION_EVIDENCE '+JSON.stringify({admissionRequests:admissionSeen.size,admissions:admissions.map(a=>({label:a.label,ok:a.body.ok,reason:a.body.reason,fence:a.body.fence??a.body.admission?.fence??null})),activeFence:authority.fence,enabled:['A','B'].map(label=>({label,enabled:enabled.some(x=>x.label===label)}))}));
     // If admission already denied one browser, keep that denial visible; do not manufacture a second writable UI.
     const staleId=randomUUID(),staleText='Rejected stale creator '+staleId;
     const stale={projectId:proof.projectId,selectionVaultId:proof.vaultId,operationId:authority.operationId+':'+staleId,creatorTurnId:staleId,expectedRevision:active.revision,fence:'stale-'+randomUUID(),creatorMessage:{id:staleId,role:'creator',text:staleText},requestDigest:buildRequestDigest({creatorMessage:staleText,projectId:proof.projectId,options:{}})};
@@ -571,6 +572,7 @@ try{
      assert.equal((await transport({path:'/studio/native-execution-initiate',token:owner,body:x.input})).ok,false);
     }
     for(const p of [page,peer])await p.unrouteAll({behavior:'wait'});
+    console.log('PHYSICAL_COMPOSER_CONTENTION_EVIDENCE '+JSON.stringify({requests:attempts.length,attempts:attempts.map(a=>({label:a.label,fence:a.input.fence,creatorTurnId:a.input.creatorTurnId,ok:a.body.ok,reason:a.body.reason})),providerEffects:providerRequests.length-raceCalls,receipts:await receipts.countDocuments({projectId:proof.projectId}),charges:(await entitlement.findOne({principalId:ownerId})).consumedUnits-raceBalance.consumedUnits}));
     console.log('GREEN PHYSICAL_RECOVERED_BROWSER_WRITER_ADMISSION_CONTENTION_AND_CANONICAL_FENCING');
     const loser=winner.label==='A'?peer:page,loserSignIn=winner.label==='A'?peerSignIn:signIn;
     await loserSignIn();const loserHistory=loser.getByLabel('Committed conversation transcript');
@@ -592,6 +594,82 @@ try{
     assert.deepEqual(await projects.findOne({_id:proof.projectId}),converged);
     for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
     console.log('GREEN PHYSICAL_RECOVERED_BROWSER_COMPOSER_CONTENTION_RETRY_ACCOUNTING_AND_RELOAD');
+    // Independent deterministic race: hold A's real execution request before ingress,
+    // admit B from a fresh read, then release both captured requests together.
+    const deterministicBefore=await projects.findOne({_id:proof.projectId});
+    const deterministicBalance=await entitlement.findOne({principalId:ownerId});
+    const deterministicCalls=providerRequests.length;
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:2,entitlementRevision:1}});
+    await page.getByRole('button',{name:'Request native writing'}).click();
+    await page.getByText('Server writer admitted',{exact:true}).waitFor();
+    const originalAuthority=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+    const captured=[],outcomes=[];
+    let releaseBoth;const bothReady=new Promise(r=>releaseBoth=r);
+    let firstCaptured;const firstReady=new Promise(r=>firstCaptured=r);
+    for(const [label,p] of [['A',page],['B',peer]]){
+     await p.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      const input=route.request().postDataJSON();
+      captured.push({label,input});
+      if(label==='A')firstCaptured();
+      if(captured.length===2)releaseBoth();
+      await bothReady;
+      const response=await route.fetch(),body=await response.json();
+      outcomes.push({label,ok:body.ok,reason:body.reason});
+      await route.fulfill({response});
+     });
+    }
+    const aText='Deterministic stale creator '+randomUUID(),bText='Deterministic current creator '+randomUUID();
+    await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(aText);
+    await page.getByRole('button',{name:'Send',exact:true}).click();
+    await Promise.race([firstReady,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('first genuine execution request not captured')),15000);t.unref()})]);
+    assert.equal(captured[0].input.fence,originalAuthority.activeWriterFence);
+    await peerSignIn();
+    await peer.getByRole('button',{name:'Request native writing'}).click();
+    await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const currentAuthority=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+    assert.notEqual(currentAuthority.activeWriterFence,originalAuthority.activeWriterFence);
+    await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(bText);
+    await peer.getByRole('button',{name:'Send',exact:true}).click();
+    await until(()=>outcomes.length===2,'two actual captured execution requests must return');
+    assert.equal(captured.length,2);
+    assert.equal(captured.find(x=>x.label==='B').input.fence,currentAuthority.activeWriterFence);
+    assert.equal(outcomes.find(x=>x.label==='A').ok,false);
+    assert.equal(outcomes.find(x=>x.label==='B').ok,true);
+    await peer.getByLabel('Committed conversation transcript').getByText(bText,{exact:true}).waitFor({timeout:20000});
+    const deterministicAfter=await projects.findOne({_id:proof.projectId});
+    assert.equal(deterministicAfter.revision,deterministicBefore.revision+1);
+    assert.deepEqual(deterministicAfter.state.conversationMessages.slice(0,-2),deterministicBefore.state.conversationMessages);
+    assert.equal(deterministicAfter.state.conversationMessages.at(-2).text,bText);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId,creatorTurnId:captured[0].input.creatorTurnId}),0);
+    const bRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:captured.find(x=>x.label==='B').input.creatorTurnId,phase:'settled'});
+    assert.ok(bRow);const bCanonical=await composed.execution.authority.readCanonicalResult({executionId:bRow.executionId});
+    assert.equal(bCanonical.authorized,true);assert.equal(deterministicAfter.state.conversationMessages.at(-1).text,bCanonical.resultPayload.text);
+    assert.equal(providerRequests.length,deterministicCalls+5);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),5);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,deterministicBalance.consumedUnits+1);
+    console.log('PHYSICAL_TWO_EXECUTION_REQUEST_EVIDENCE '+JSON.stringify({requests:captured.map(x=>({label:x.label,fence:x.input.fence,turn:x.input.creatorTurnId})),outcomes,providerEffects:providerRequests.length-deterministicCalls,receipts:5,charges:1}));
+    console.log('GREEN PHYSICAL_DETERMINISTIC_TWO_BROWSER_EXECUTION_CONTENTION');
+    for(const p of [page,peer])await p.unrouteAll({behavior:'wait'});
+    await signIn();await page.getByLabel('Committed conversation transcript').getByText(bText,{exact:true}).waitFor({timeout:15000});
+    await page.getByRole('button',{name:'Request native writing'}).click();await page.getByText('Server writer admitted',{exact:true}).waitFor();
+    await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(aText);
+    await page.getByRole('button',{name:'Send',exact:true}).click();await page.getByLabel('Committed conversation transcript').getByText(aText,{exact:true}).waitFor({timeout:20000});
+    const deterministicFinal=await projects.findOne({_id:proof.projectId});
+    assert.equal(deterministicFinal.revision,deterministicAfter.revision+1);
+    assert.deepEqual(deterministicFinal.state.conversationMessages.slice(0,-2),deterministicAfter.state.conversationMessages);
+    assert.equal(deterministicFinal.state.conversationMessages.at(-2).text,aText);
+    const aRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:deterministicFinal.state.conversationMessages.at(-2).id,phase:'settled'});
+    assert.ok(aRow);const aCanonical=await composed.execution.authority.readCanonicalResult({executionId:aRow.executionId});
+    assert.equal(aCanonical.authorized,true);assert.equal(deterministicFinal.state.conversationMessages.at(-1).text,aCanonical.resultPayload.text);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),6);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),6);
+    assert.equal(providerRequests.length,deterministicCalls+10);
+    assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,deterministicBalance.consumedUnits+2);
+    await Promise.all([signIn(),peerSignIn()]);
+    for(const p of [page,peer])for(const txt of [message,peerMessage,winningPage.text,retryText,bText,aText])await p.getByLabel('Committed conversation transcript').getByText(txt,{exact:true}).waitFor({timeout:15000});
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),deterministicFinal);
+    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+    console.log('GREEN PHYSICAL_DETERMINISTIC_STALE_BROWSER_RETRY_CANONICAL_CONVERGENCE');
 
    }else console.log(proof.precommit?'GREEN PHYSICAL_PRECOMMIT_REGISTRATION_BROWSER_CONTINUATION_AND_RELOAD':'GREEN PHYSICAL_INITIAL_PROVISIONING_FRESH_PROCESS_CONTINUATION_AND_RELOAD');
   }finally{if(peerBrowser)await peerBrowser.close();if(browser)await browser.close();if(vite)vite.kill();for(const f of candidate.files)try{unlinkSync(f.path)}catch{}if(executionServer)await new Promise(r=>executionServer.close(r));await new Promise(r=>providerServer.close(r));}
