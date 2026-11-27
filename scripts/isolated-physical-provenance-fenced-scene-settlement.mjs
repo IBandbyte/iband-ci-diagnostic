@@ -4,7 +4,7 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {validateConversationSettlement} from './isolated-conversation-settlement-contract.mjs';
 const digest=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-export function createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts,verifyMentorExecution=null}={}){
+export function createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts,verifyMentorExecution=null,beforeConversationCommit=null}={}){
  if(!client||!gate||!projects||!receipts)throw Error('physical-settlement-dependencies-required');
  async function save({token,projectId,operationId,fence,expectedRevision,scene}={}){
   const ownerId=gate.authenticateOwner(token);
@@ -105,6 +105,7 @@ export function createPhysicalProvenanceFencedSceneSettlement({client,gate,proje
    await gate.ledger.insertOne({projectId,operationId,ownerId,ownershipRevision:canonical.ownershipRevision,revision,entry,fullOutboxDigest:digest(next.durablePublicationOutbox),stateDigest:digest(next)},{session});
    const commitId=digest({projectId,operationId,ownerId,fence,fingerprint,revision});
    await receipts.insertOne({projectId,operationId,creatorTurnId,ownerId,fence,admissionId,expectedRevision,revision,fingerprint,commitId},{session});
+   if(beforeConversationCommit)await beforeConversationCommit({session,projectId,operationId,creatorTurnId,fence,revision,commitId});
    return {ok:true,replay:false,projectId,operationId,creatorTurnId,committedRevision:revision,serverCommitId:commitId};
   },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}})}
   catch(e){if(e?.code===11000||e?.code===112||e?.hasErrorLabel?.('TransientTransactionError'))return {ok:false};throw e}
