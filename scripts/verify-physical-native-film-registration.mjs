@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID,generateKeyPairSync,sign,verify,createPublicKey,createHash} from 'node:crypto';
 import express from 'express';
 import http from 'node:http';
+import net from 'node:net';
 import {createMovieMentorCreatorRequestAuthority} from './ai/MovieMentorCreatorRequestAuthority.js';
 import {createMovieMentorTurnRouter} from './movieMentorTurn.js';
 import {createMovieMentorProductionInferenceSpendComposition} from './ai/MovieMentorProductionInferenceSpendComposition.js';
@@ -28,7 +29,71 @@ import {createStudioOwnerVaultAuthority} from './isolated-studio-owner-vault-aut
 import {createNativeFilmRegistration} from './isolated-native-film-registration.mjs';
 const uri=process.env.MONGO_URI;
 assert.match(uri,/^mongodb:\/\/127\.0\.0\.1:27017\//);
-const client=new MongoClient(uri);await client.connect();
+// Only the isolated ambiguity worker uses this wire proxy. Mongoose and the
+// supervisor continue to connect directly to the real loopback replica set.
+let commitFault=null,commitProxy=null;
+if(process.env.NATIVE_BOUND_WORKER_COMMIT_UNKNOWN){
+ const {BSON}=await import('mongodb');
+ const sockets=new Set();
+ const commands=[];
+ const state={armed:null,dropped:null,commands,sockets};
+ const parse=frame=>{
+  if(frame.readInt32LE(12)!==2013||frame[20]!==0)return null;
+  return BSON.deserialize(frame.subarray(21,21+frame.readInt32LE(21)),{promoteLongs:false});
+ };
+ const pump=(source,consume)=>{
+  let buffer=Buffer.alloc(0);
+  source.on('data',chunk=>{
+   buffer=Buffer.concat([buffer,chunk]);
+   while(buffer.length>=16){
+    const size=buffer.readInt32LE(0);
+    assert.ok(size>=16&&size<=64*1024*1024,'invalid Mongo wire frame');
+    if(buffer.length<size)break;
+    const frame=buffer.subarray(0,size);buffer=buffer.subarray(size);
+    consume(frame);
+   }
+  });
+ };
+ commitProxy=net.createServer(down=>{
+  const up=net.connect(27017,'127.0.0.1');sockets.add(down);sockets.add(up);
+  const pending=new Map();
+  const close=()=>{down.destroy();up.destroy();sockets.delete(down);sockets.delete(up)};
+  down.on('error',close);up.on('error',close);down.on('close',close);up.on('close',close);
+  pump(down,frame=>{
+   const doc=parse(frame);
+   if(doc?.commitTransaction&&state.armed&&doc.lsid?.id?.toUUID().toString()===state.armed.sessionId){
+    const txn=String(doc.txnNumber);const record={txn,requestId:frame.readInt32LE(4),sessionId:state.armed.sessionId};
+    commands.push(record);pending.set(record.requestId,record);
+   }
+   up.write(frame);
+  });
+  pump(up,frame=>{
+   const record=pending.get(frame.readInt32LE(8));
+   if(record){
+    pending.delete(frame.readInt32LE(8));const reply=parse(frame);
+    assert.ok(reply,'expected OP_MSG commit reply');assert.equal(Number(reply.ok),1);assert.equal(reply.writeConcernError,undefined);
+    if(!state.dropped){
+     state.dropped={...record,serverOk:Number(reply.ok),replyBytes:frame.length};
+     // Mongo has acknowledged majority commit to the proxy, but the driver
+     // never receives even one byte of that response.
+     close();return;
+    }
+    record.serverOk=Number(reply.ok);
+   }
+   down.write(frame);
+  });
+ });
+ await new Promise((resolve,reject)=>{commitProxy.once('error',reject);commitProxy.listen(0,'127.0.0.1',resolve)});
+ commitFault=state;
+}
+const clientUri=commitProxy?uri.replace('127.0.0.1:27017','127.0.0.1:'+commitProxy.address().port)+'&directConnection=true':uri;
+const client=new MongoClient(clientUri,{monitorCommands:!!commitFault});await client.connect();
+const commitDriverEvents=[];
+if(commitFault){
+ client.on('commandStarted',e=>{if(e.commandName==='commitTransaction'&&commitFault.armed&&e.command.lsid?.id?.toUUID().toString()===commitFault.armed.sessionId)commitDriverEvents.push({kind:'started',requestId:e.requestId,txn:String(e.command.txnNumber)})});
+ client.on('commandFailed',e=>{if(e.commandName==='commitTransaction'&&commitDriverEvents.some(x=>x.kind==='started'&&x.requestId===e.requestId))commitDriverEvents.push({kind:'failed',requestId:e.requestId,message:String(e.failure?.message||e.failure)})});
+ client.on('commandSucceeded',e=>{if(e.commandName==='commitTransaction'&&commitDriverEvents.some(x=>x.kind==='started'&&x.requestId===e.requestId))commitDriverEvents.push({kind:'succeeded',requestId:e.requestId})});
+}
 const db=client.db('isolated_native_film_registration');
 const {publicKey,privateKey}=process.env.NATIVE_RECOVERY_PUBLIC_KEY?{publicKey:createPublicKey(process.env.NATIVE_RECOVERY_PUBLIC_KEY),privateKey:null}:generateKeyPairSync('rsa',{modulusLength:2048});
 const now=Math.floor(Date.now()/1000),b64=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
@@ -300,7 +365,7 @@ try{
      const response=await call('/api/movie-mentor/turn',{projectId,creatorTurnId,message:creatorMessage.text,options:{}},token);
      if(response.status!==200||response.body?.success!==true||response.body.status!=='mentor-response-ready'||typeof response.body.text!=='string')return deny();
      const mentorMessage={id:'mentor-'+creatorTurnId,role:'mentor',text:response.body.text,metadata:{backendMetadata:{creatorTurnId}}};
-     if(process.env.NATIVE_BOUND_WORKER_SETTLED&&!process.env.NATIVE_BOUND_WORKER_PUBLISHED&&!process.env.NATIVE_BOUND_WORKER_PRECOMMIT){
+     if(process.env.NATIVE_BOUND_WORKER_SETTLED&&!process.env.NATIVE_BOUND_WORKER_PUBLISHED&&!process.env.NATIVE_BOUND_WORKER_PRECOMMIT&&!process.env.NATIVE_BOUND_WORKER_COMMIT_UNKNOWN){
       writeFileSync(process.env.NATIVE_BOUND_WORKER_PAUSE,JSON.stringify({pid:process.pid,projectId,creatorTurnId,fence,requestDigest:digest,mentorMessage}));
       await new Promise(()=>{});
      }
@@ -312,6 +377,14 @@ try{
      const binding=await strictBindings.findOne({ownerId:subject,projectId:body.projectId,creatorTurnId:body.creatorTurnId,operationId:body.operationId,fence:body.fence,expectedRevision:body.expectedRevision,selectionVaultId:body.selectionVaultId});
      if(!binding||binding.requestDigest!==buildRequestDigest({creatorMessage:body.creatorMessage?.text?.trim()||'',projectId:body.projectId,options:{}}))return res.json({ok:false});
      const result=await strict.settleConversation({...body,token});
+     if(commitFault&&result.ok&&!result.replay){
+      assert.ok(commitFault.dropped);assert.ok(commitFault.commands.length>=2);
+      assert.ok(commitFault.commands.every(c=>c.txn===commitFault.dropped.txn&&c.sessionId===commitFault.dropped.sessionId));
+      assert.ok(commitDriverEvents.some(e=>e.kind==='failed'));
+      assert.ok(commitDriverEvents.some(e=>e.kind==='succeeded'));
+      writeFileSync(process.env.NATIVE_BOUND_WORKER_PAUSE,JSON.stringify({pid:process.pid,creatorTurnId:body.creatorTurnId,fence:body.fence,receipt:result,wire:commitFault.dropped,commands:commitFault.commands,driverEvents:commitDriverEvents}));
+      await new Promise(()=>{});
+     }
      if(process.env.NATIVE_BOUND_WORKER_PUBLISHED&&result.ok&&!result.replay){
       writeFileSync(process.env.NATIVE_BOUND_WORKER_PAUSE,JSON.stringify({pid:process.pid,projectId:body.projectId,creatorTurnId:body.creatorTurnId,fence:body.fence,receipt:result}));
       await new Promise(()=>{});
@@ -325,12 +398,13 @@ try{
     const strictBindings=db.collection('native_execution_initiation_bindings');
     const canonicalize=x=>x===null||typeof x!=='object'?x:Array.isArray(x)?x.map(canonicalize):Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonicalize(x[k])]));
     const hash=x=>createHash('sha256').update(JSON.stringify(canonicalize(x))).digest('hex');
-    const strict=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts,beforeConversationCommit:process.env.NATIVE_BOUND_WORKER_PRECOMMIT?async({session,projectId,operationId,creatorTurnId,fence,revision,commitId})=>{
+    const strict=createPhysicalProvenanceFencedSceneSettlement({client,gate,projects,receipts,beforeConversationCommit:(process.env.NATIVE_BOUND_WORKER_PRECOMMIT||commitFault)?async({session,projectId,operationId,creatorTurnId,fence,revision,commitId})=>{
      assert.equal(session.inTransaction(),true);
      const staged=await receipts.findOne({projectId,operationId},{session});assert.equal(staged.commitId,commitId);
      assert.equal((await projects.findOne({_id:projectId},{session})).revision,revision);
      assert.equal((await gate.states.findOne({projectId,revoked:false},{session})).revision,revision);
      assert.ok(await gate.ledger.findOne({projectId,operationId,revision},{session}));
+     if(commitFault){assert.equal(commitFault.armed,null);commitFault.armed={sessionId:session.id.id.toUUID().toString(),operationId,commitId};return;}
      writeFileSync(process.env.NATIVE_BOUND_WORKER_PAUSE,JSON.stringify({pid:process.pid,projectId,operationId,creatorTurnId,fence,revision,commitId,sessionId:session.id.id.toUUID().toString()}));
      await new Promise(()=>{});
     }:null,verifyMentorExecution:async({ownerId,projectId,creatorTurnId,creatorMessage,mentorMessage})=>{
@@ -1293,6 +1367,147 @@ try{
     assert.equal(providerRequests.length,calls+5);assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,balance.consumedUnits+2);
     for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
     console.log('GREEN PHYSICAL_PUBLICATION_PRECOMMIT_BROWSER_CONTINUATION_AND_RELOAD');
+    }
+    {
+    await signIn();
+    const before=await projects.findOne({_id:proof.projectId});
+    const receiptCount=await receipts.countDocuments({projectId:proof.projectId});
+    const originalReceipts=await receipts.find({projectId:proof.projectId}).sort({_id:1}).toArray();
+    const originalLedger=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+    const executionCount=await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId});
+    const bindingCount=await bindingRows.countDocuments({ownerId,projectId:proof.projectId});
+    const calls=providerRequests.length;
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:2,entitlementRevision:1}});
+    const balance=await entitlement.findOne({principalId:ownerId});
+    await page.getByRole('button',{name:'Request native writing'}).click();
+    await page.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const text='Database commit acknowledgement uncertainty '+randomUUID();
+    const manifest='./native-commit-unknown-worker-'+randomUUID()+'.json',pause=manifest+'.pause';
+    const env={...process.env,NATIVE_BOUND_WORKER_MANIFEST:manifest,NATIVE_BOUND_WORKER_PAUSE:pause,NATIVE_BOUND_WORKER_SETTLED:'1',NATIVE_BOUND_WORKER_COMMIT_UNKNOWN:'1'};
+    delete env.NATIVE_INITIAL_PROVISION_RECOVERY;
+    const worker=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env,stdio:['ignore','pipe','pipe']});
+    let output='';worker.stdout.on('data',x=>output+=x);worker.stderr.on('data',x=>output+=x);
+    const exited=new Promise(resolve=>worker.once('close',(status,signal)=>resolve({status,signal})));
+    const readSignal=async path=>{for(let i=0;i<200;i++){try{return JSON.parse(readFileSync(path,'utf8'))}catch{}await new Promise(r=>setTimeout(r,100))}throw Error('publication worker signal missing '+output)};
+    let input,published,receipt,executionRow,canonicalResult,paidBalance,ledgerBeforeRecovery;
+    let releaseRoute;const heldRoute=new Promise(r=>releaseRoute=r);
+    let notifyLost;const lostAcknowledgement=new Promise(r=>notifyLost=r);
+    let initiationRequests=0,publicationRequests=0;
+    try{
+     const address=await readSignal(manifest);assert.equal(address.pid,worker.pid);
+     const send=async(path,body)=>fetch('http://127.0.0.1:'+address.port+path,{method:'POST',headers:{authorization:'Bearer '+owner,'content-type':'application/json'},body:JSON.stringify(body)});
+     await page.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      initiationRequests++;const response=await send('/studio/native-execution-initiate',route.request().postDataJSON());
+      const body=await response.json();assert.equal(body.ok,true);
+      await route.fulfill({status:response.status,json:body});
+     });
+     await page.route('**/native-authority/studio/strict-conversation-settle',async route=>{
+      publicationRequests++;input=route.request().postDataJSON();
+      try{await send('/studio/strict-conversation-settle',input);notifyLost(false);}
+      catch{notifyLost(true);}
+      await heldRoute;
+      await route.abort().catch(()=>{});
+     });
+     await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(text);
+     await page.getByRole('button',{name:'Send',exact:true}).click();
+     const signal=await readSignal(pause);
+     assert.equal(signal.pid,worker.pid);assert.equal(initiationRequests,1);assert.equal(publicationRequests,1);
+     assert.equal(signal.creatorTurnId,input.creatorTurnId);assert.equal(signal.fence,input.fence);
+     assert.equal(signal.receipt.ok,true);assert.equal(signal.receipt.replay,false);
+     assert.equal(signal.wire.serverOk,1);assert.ok(signal.wire.replyBytes>16);
+     assert.ok(signal.commands.length>=2);assert.ok(signal.commands.every(c=>c.txn===signal.wire.txn&&c.sessionId===signal.wire.sessionId));
+     assert.ok(signal.commands.slice(1).some(c=>c.serverOk===1));
+     assert.ok(signal.driverEvents.some(e=>e.kind==='failed'));assert.ok(signal.driverEvents.some(e=>e.kind==='succeeded'));
+     assert.equal(signal.driverEvents.filter(e=>e.kind==='started').length,signal.commands.length);
+     console.log('PHYSICAL_DATABASE_COMMIT_UNKNOWN_WIRE_EVIDENCE '+JSON.stringify({wire:signal.wire,commands:signal.commands,driverEvents:signal.driverEvents}));
+     published=await projects.findOne({_id:proof.projectId});
+     assert.equal(published.revision,before.revision+1);
+     assert.deepEqual(published.state.conversationMessages.slice(0,-2),before.state.conversationMessages);
+     assert.equal(published.state.conversationMessages.at(-2).id,input.creatorTurnId);
+     assert.equal(published.state.conversationMessages.at(-2).text,text);
+     receipt=await receipts.findOne({projectId:proof.projectId,ownerId,operationId:input.operationId});
+     assert.ok(receipt);assert.equal(receipt.commitId,signal.receipt.serverCommitId);
+     assert.equal(receipt.creatorTurnId,input.creatorTurnId);assert.equal(receipt.revision,published.revision);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+1);
+     assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),bindingCount+1);
+     const binding=await bindingRows.findOne({ownerId,projectId:proof.projectId,creatorTurnId:input.creatorTurnId});
+     assert.equal(binding.fence,input.fence);assert.equal(binding.creatorText,text);
+     executionRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:input.creatorTurnId,phase:'settled'});
+     assert.ok(executionRow);canonicalResult=await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId});
+     assert.equal(canonicalResult.authorized,true);assert.equal(canonicalResult.committed,true);assert.equal(canonicalResult.resultPayload.text,published.state.conversationMessages.at(-1).text);
+     const reconciler=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
+     const reconciled=await reconciler.reconcile({executionId:executionRow.executionId});
+     assert.equal(reconciled.authorized,true);assert.equal(reconciled.settled,true);assert.equal(reconciled.outcome,'consumed');assert.equal(reconciled.resultDigest,canonicalResult.resultDigest);
+     paidBalance=await entitlement.findOne({principalId:ownerId});assert.equal(paidBalance.consumedUnits,balance.consumedUnits+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+1);
+     ledgerBeforeRecovery=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+     assert.equal(ledgerBeforeRecovery.length,originalLedger.length+1);assert.deepEqual(ledgerBeforeRecovery.slice(0,-1),originalLedger);
+     for(const prior of originalReceipts)assert.deepEqual(await receipts.findOne({_id:prior._id}),prior);
+     const state=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+     assert.equal(state.activeWriterFence,input.fence);
+     assert.equal(await page.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).count(),0);
+     worker.kill('SIGKILL');assert.equal((await exited).signal,'SIGKILL');
+     assert.equal(await Promise.race([lostAcknowledgement,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('publication acknowledgement loss not observed')),15000);t.unref()})]),true);
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),published);
+     assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+     assert.deepEqual(await raceExecutions.findOne({executionId:executionRow.executionId}),executionRow);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),paidBalance);
+     console.log('PHYSICAL_DATABASE_COMMIT_UNKNOWN_SIGKILL_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,signal:'SIGKILL',turn:input.creatorTurnId,commitId:receipt.commitId,revision:receipt.revision,executionId:executionRow.executionId,resultDigest:canonicalResult.resultDigest,workerProviderEffects:5,charges:1,publicationReceipts:1,acknowledgementLost:true}));
+     console.log('GREEN PHYSICAL_DATABASE_COMMIT_UNKNOWN_WIRE_RETRY');
+     const blank=page.goto('about:blank');releaseRoute();await blank;await page.unrouteAll({behavior:'wait'});
+    }finally{if(worker.exitCode===null&&worker.signalCode===null)worker.kill('SIGKILL');await exited;releaseRoute();for(const f of [manifest,pause])try{unlinkSync(f)}catch{}}
+    const receiptRequest={projectId:proof.projectId,operationId:input.operationId};
+    assert.equal((await transport({path:'/studio/native-conversation-receipt',token:foreign,body:receiptRequest})).ok,false);
+    const beforeRecoveryReceipt=await transport({path:'/studio/native-conversation-receipt',token:owner,body:receiptRequest});
+    assert.equal(beforeRecoveryReceipt.ok,true);assert.equal(beforeRecoveryReceipt.serverCommitId,receipt.commitId);assert.equal(beforeRecoveryReceipt.creatorTurnId,input.creatorTurnId);
+    const selected=await selection.read({token:owner,projectId:proof.vaultId});
+    assert.equal((await transport({path:'/studio/native-conversation-cancel',token:owner,body:{projectId:proof.projectId,selectionVaultId:proof.vaultId,expectedRevision:published.revision,expectedSelectionRevision:selected.revision,confirmCancellation:true}})).ok,false);
+    const recoveryRequests=[],recoveryResults=[];let releaseRecovery;
+    const recoveryBarrier=new Promise(r=>releaseRecovery=r);
+    for(const [label,p] of [['A',page],['B',peer]])await p.route('**/native-authority/studio/native-conversation-recover',async route=>{
+     recoveryRequests.push(label);if(recoveryRequests.length===2)releaseRecovery();
+     await recoveryBarrier;
+     const response=await route.fetch(),body=await response.json();recoveryResults.push({label,...body});await route.fulfill({response});
+    });
+    await Promise.all([signIn(),peerSignIn()]);
+    try{await Promise.all([page,peer].map(p=>p.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).waitFor({timeout:20000})));}
+    catch(error){console.error('PHYSICAL_DATABASE_COMMIT_UNKNOWN_RECOVERY_TRACE '+JSON.stringify({recoveryRequests,recoveryResults,trace:recoveryTrace,bodies:await Promise.all([page,peer].map(p=>p.locator('body').innerText()))}));throw error;}
+    assert.deepEqual(recoveryRequests.sort(),['A','B']);
+    assert.equal(recoveryResults.length,2);assert.ok(recoveryResults.every(r=>r.ok===true));
+    assert.ok(recoveryResults.some(r=>r.recovered===true&&r.receipt?.serverCommitId===receipt.commitId));
+    for(const p of [page,peer]){await p.unrouteAll({behavior:'wait'});assert.equal(await p.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).count(),1);}
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),published);
+    assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+    assert.deepEqual(await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray(),ledgerBeforeRecovery);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+1);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+1);
+    assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),bindingCount+1);
+    assert.equal(providerRequests.length,calls);
+    assert.deepEqual(await entitlement.findOne({principalId:ownerId}),paidBalance);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId}),canonicalResult);
+    const retired=await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:input.fence});assert.equal(retired.status,'retired');
+    console.log('PHYSICAL_DATABASE_COMMIT_UNKNOWN_RECOVERY_EVIDENCE '+JSON.stringify({requests:recoveryRequests,results:recoveryResults,additionalProviderEffects:0,additionalCharges:0,additionalPublications:0,commitId:receipt.commitId}));
+    console.log('GREEN PHYSICAL_DATABASE_COMMIT_UNKNOWN_CONCURRENT_RECEIPT_RECOVERY');
+    await peer.getByRole('button',{name:'Request native writing'}).click();await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const continuation='After database commit uncertainty '+randomUUID();
+    await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(continuation);
+    await peer.getByRole('button',{name:'Send',exact:true}).click();await peer.getByLabel('Committed conversation transcript').getByText(continuation,{exact:true}).waitFor({timeout:20000});
+    const final=await projects.findOne({_id:proof.projectId});
+    assert.equal(final.revision,published.revision+1);assert.deepEqual(final.state.conversationMessages.slice(0,-2),published.state.conversationMessages);
+    const row=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:final.state.conversationMessages.at(-2).id,phase:'settled'});
+    assert.ok(row);const canonical=await composed.execution.authority.readCanonicalResult({executionId:row.executionId});
+    assert.equal(canonical.authorized,true);assert.equal(canonical.resultPayload.text,final.state.conversationMessages.at(-1).text);
+    await Promise.all([signIn(),peerSignIn()]);
+    for(const p of [page,peer])for(const msg of final.state.conversationMessages.filter(m=>m.role==='creator'))await p.getByLabel('Committed conversation transcript').getByText(msg.text,{exact:true}).waitFor({timeout:15000});
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),final);
+    assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId}),canonicalResult);
+    assert.equal((await transport({path:'/studio/native-conversation-receipt',token:owner,body:receiptRequest})).serverCommitId,receipt.commitId);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+2);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+2);
+    assert.equal(providerRequests.length,calls+5);assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,balance.consumedUnits+2);
+    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+    console.log('GREEN PHYSICAL_DATABASE_COMMIT_UNKNOWN_BROWSER_CONTINUATION_AND_RELOAD');
     }
 
 
@@ -2652,4 +2867,4 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
  }
  console.log('HELD NATIVE_COCKPIT_EDITING_AND_REAL_ROUTE_SESSION_ADOPTION');
  }
-}finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close()}
+}finally{if(server)await new Promise(r=>server.close(r));await mongoose.disconnect();await client.close();if(commitProxy){for(const socket of commitFault.sockets)socket.destroy();await new Promise(r=>commitProxy.close(r))}}
