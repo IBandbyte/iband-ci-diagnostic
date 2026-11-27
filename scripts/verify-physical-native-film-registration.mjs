@@ -1987,7 +1987,9 @@ try{
       preProof={precommit:true,concurrent,abandonedSessionId:paused.sessionId,workerPid:address.pid,projectId:id,count:preCount,consumed:preBalance.consumedUnits,vaultId:selectionVaultId,previousSelection:preSelection.activeProjectId,selectionBefore:preSelection,prior:prePrior};
       console.log(concurrent?'GREEN PHYSICAL_CONCURRENT_BROWSER_PRECOMMIT_SIGKILL_ROLLBACK':'GREEN PHYSICAL_CONCURRENT_REGISTRATION_PRECOMMIT_SIGKILL_ROLLBACK');
      }finally{if(preWorker.exitCode===null&&preWorker.signalCode===null)preWorker.kill('SIGKILL');await preExit;for(const p of [preManifest,pauseManifest])try{unlinkSync(p)}catch{}}
-     const preResumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(preProof)},encoding:'utf8',timeout:180000});
+     // The concurrent precommit child now includes a second full database-wire fault and browser recovery court.
+     // Preserve every individual assertion and the 95s abandoned-transaction deadline; budget the aggregate separately.
+     const preResumed=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...childEnv,NATIVE_INITIAL_PROVISION_RECOVERY:JSON.stringify(preProof)},encoding:'utf8',timeout:300000});
      process.stdout.write(preResumed.stdout||'');process.stderr.write(preResumed.stderr||'');assert.equal(preResumed.status,0,preResumed.error?.message||preResumed.stderr);
      }
 
@@ -2855,13 +2857,13 @@ globalThis.__nativeSignIn=()=>setMovieMentorCreatorAuthState({isLoaded:true,isSi
   assert.equal(restarted.pid,expected.originalPid);
   const mode=process.env.NATIVE_DEFERRED_EXIT_MANIFEST?'NATIVE_CANONICAL_RESTART_COURT':'NATIVE_POST_EXIT_READBACK';
   const {browserCandidate,...restartExpected}=expected;
-  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:560000});
+  const readback=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...recoveryEnv,[mode]:JSON.stringify(restartExpected),...(browserCandidate?{NATIVE_RESTART_BROWSER_MANIFEST:manifest}:{})},encoding:'utf8',timeout:680000});
   process.stdout.write(readback.stdout||'');process.stderr.write(readback.stderr||'');assert.equal(readback.status,0,readback.error?.message||readback.stderr);
  }finally{try{unlinkSync(manifest)}catch{}}
  if(!process.env.NATIVE_DEFERRED_EXIT_MANIFEST){
   const deferredManifest='./native-deferred-exit-'+randomUUID()+'.json';
   try{
-   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:680000});
+   const deferred=spawnSync(process.execPath,['./verify-physical-native-film-registration.mjs'],{env:{...process.env,NATIVE_DEFERRED_EXIT_MANIFEST:deferredManifest},encoding:'utf8',timeout:800000});
    process.stdout.write(deferred.stdout||'');process.stderr.write(deferred.stderr||'');assert.equal(deferred.status,0,deferred.error?.message||deferred.stderr);
   }finally{try{unlinkSync(deferredManifest)}catch{}}
  }
