@@ -139,6 +139,9 @@ export function createApplicationOwnedStudioServices({
  async function submitNativeConversation({creatorMessage,mentorMessage}={}, {canonical=false}={}){
   const admitted=editable.getSnapshot(),selected=selection.getSnapshot();
   if(submitting||!admitted?.writable||selected?.activeProjectId!==admitted.projectId||selected.revision!==admitted.selectionRevision||!creatorMessage?.id)return {ok:false,reason:'native-writer-required'};
+  const originalView=continuity.getSnapshot();
+  const originalMessages=originalView?.conversationMessages;
+  if(!Array.isArray(originalMessages)||originalView.projectId!==admitted.projectId||originalView.projectRevision!==admitted.revision||originalView.fence!==admitted.fence)return {ok:false,reason:'native-writer-projection-unverified'};
   submitting=true;
   const projectId=admitted.projectId,operationId=admitted.operationId+':'+creatorMessage.id;
   const current=()=>{const e=editable.getSnapshot(),s=selection.getSnapshot();return e?.fence===admitted.fence&&s?.activeProjectId===projectId&&s.revision===admitted.selectionRevision};
@@ -167,12 +170,19 @@ export function createApplicationOwnedStudioServices({
    if(settled!==null&&(settled?.ok!==true||settled.projectId!==projectId||settled.operationId!==operationId||settled.creatorTurnId!==creatorMessage.id||settled.committedRevision!==admitted.revision+1||!settled.serverCommitId))return {ok:false,reason:'settlement-unverified'};
    const receipt=await execute('/studio/native-conversation-receipt',{token,projectId,operationId});
    if(!current()||receipt?.ok!==true||receipt.projectId!==projectId||receipt.operationId!==operationId||receipt.creatorTurnId!==creatorMessage.id||receipt.committedRevision!==admitted.revision+1||!receipt.serverCommitId||(settled!==null&&receipt.serverCommitId!==settled.serverCommitId))return {ok:false,reason:'receipt-unverified'};
+   // A receipt proves a historical operation, not that its revision is still
+   // the head. The server validates the receipt against the durable ledger.
+   // Require the exact admitted prefix and exact committed pair in order.
+   const expectedPrefix=[...originalMessages,creatorMessage,mentorMessage];
+   const containsPrefix=(messages,prefix)=>Array.isArray(messages)&&messages.length>=prefix.length&&JSON.stringify(messages.slice(0,prefix.length))===JSON.stringify(prefix);
+   const verifiesProjection=(revision,messages)=>Number.isSafeInteger(revision)&&revision>=receipt.committedRevision&&containsPrefix(messages,expectedPrefix)&&
+    (revision!==receipt.committedRevision||messages.length===expectedPrefix.length)&&messages.filter(m=>m.id===creatorMessage.id).length===1&&messages.filter(m=>m.id===mentorMessage.id).length===1;
    const committed=await readProject({token,projectId});
-   if(!current()||committed?.ok!==true||committed.projectId!==projectId||committed.revision!==receipt.committedRevision||!Array.isArray(committed.state?.conversationMessages)||JSON.stringify(committed.state.conversationMessages.slice(-2))!==JSON.stringify([creatorMessage,mentorMessage]))return {ok:false,reason:'conversation-readback-unverified'};
+   if(!current()||snapshotToken()!==token||committed?.ok!==true||committed.projectId!==projectId||!verifiesProjection(committed.revision,committed.state?.conversationMessages))return {ok:false,reason:'conversation-readback-unverified'};
    const retired=await execute('/studio/native-conversation-retire',{token,selectionVaultId,projectId,operationId,fence:admitted.fence,serverCommitId:receipt.serverCommitId});
-   if(!current()||retired?.ok!==true||retired.retired!==true||retired.projectId!==projectId||retired.operationId!==operationId||retired.serverCommitId!==receipt.serverCommitId)return {ok:false,reason:'writer-retirement-unverified'};
+   if(!current()||snapshotToken()!==token||retired?.ok!==true||retired.retired!==true||retired.projectId!==projectId||retired.operationId!==operationId||retired.serverCommitId!==receipt.serverCommitId)return {ok:false,reason:'writer-retirement-unverified'};
    const recovered=await applicationSecondFilm.reopen({token,selectionVaultId,projectId});
-   if(!recovered.ok||recovered.view?.projectRevision!==receipt.committedRevision||!Array.isArray(recovered.view.conversationMessages)||JSON.stringify(recovered.view.conversationMessages.slice(-2))!==JSON.stringify([creatorMessage,mentorMessage]))return {ok:false,reason:'conversation-readback-unverified'};
+   if(snapshotToken()!==token||!recovered.ok||recovered.view?.projectId!==projectId||recovered.view?.selectionRevision!==admitted.selectionRevision||recovered.view?.writable!==false||!verifiesProjection(recovered.view.projectRevision,recovered.view.conversationMessages)||recovered.view.projectRevision<committed.revision||!containsPrefix(recovered.view.conversationMessages,committed.state.conversationMessages))return {ok:false,reason:'conversation-readback-unverified'};
    return {ok:true,view:recovered.view,receipt};
   }catch{return {ok:false,reason:'native-settlement-outcome-unverified'}}finally{submitting=false}
  }
