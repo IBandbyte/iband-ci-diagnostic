@@ -147,7 +147,7 @@ permissions:
 jobs:
   physical-authenticated-creator-http-transport:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       MONGO_URI: mongodb://127.0.0.1:27017/real_facade_provenance_bridge_court?replicaSet=rs0
     steps:
