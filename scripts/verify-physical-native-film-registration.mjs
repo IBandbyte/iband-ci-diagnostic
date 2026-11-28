@@ -3394,6 +3394,271 @@ try{
     for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
     console.log('GREEN PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_PROVIDER_SYNTHESIS_BROWSER_CONTINUATION_AND_RELOAD');
     }
+    {
+    await signIn();
+    const before=await projects.findOne({_id:proof.projectId});
+    const receiptCount=await receipts.countDocuments({projectId:proof.projectId});
+    const originalReceipts=await receipts.find({projectId:proof.projectId}).sort({_id:1}).toArray();
+    const originalLedger=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+    const executionCount=await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId});
+    const bindingCount=await bindingRows.countDocuments({ownerId,projectId:proof.projectId});
+    const calls=providerRequests.length;
+    await entitlement.updateOne({principalId:ownerId},{$inc:{remainingUnits:3,entitlementRevision:1}});
+    const balance=await entitlement.findOne({principalId:ownerId});
+    await page.getByRole('button',{name:'Request native writing'}).click();
+    await page.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const text='Original delayed acknowledgement during newer settled unpublished execution '+randomUUID();
+    const manifest='./native-commit-unknown-worker-'+randomUUID()+'.json',pause=manifest+'.pause';
+    const env={...process.env,NATIVE_BOUND_WORKER_MANIFEST:manifest,NATIVE_BOUND_WORKER_PAUSE:pause,NATIVE_BOUND_WORKER_SETTLED:'1',NATIVE_BOUND_WORKER_COMMIT_UNKNOWN:'1',NATIVE_BOUND_WORKER_COMMIT_RETRY_ONLY:'1',NATIVE_BOUND_WORKER_COMMIT_LATE_ACK:'1'};
+    delete env.NATIVE_INITIAL_PROVISION_RECOVERY;
+    const worker=spawn(process.execPath,['./verify-physical-native-film-registration.mjs'],{env,stdio:['ignore','pipe','pipe']});
+    let output='';worker.stdout.on('data',x=>output+=x);worker.stderr.on('data',x=>output+=x);
+    const exited=new Promise(resolve=>worker.once('close',(status,signal)=>resolve({status,signal})));
+    const readSignal=async path=>{for(let i=0;i<200;i++){try{return JSON.parse(readFileSync(path,'utf8'))}catch{}await new Promise(r=>setTimeout(r,100))}throw Error('publication worker signal missing '+output)};
+    let input,published,receipt,executionRow,canonicalResult,paidBalance,ledgerBeforeRecovery;
+    let newer,newerReceipt,newerExecution,newerCanonical,newerLedger,newerBalance;
+    const newerText='Newer settled publication held during original acknowledgement '+randomUUID();
+    let releaseRoute;const heldRoute=new Promise(r=>releaseRoute=r);
+    let notifyResponse;const lateResponse=new Promise(r=>notifyResponse=r);
+    let notifyDelivered;const delivered=new Promise(r=>notifyDelivered=r);
+    let initiationRequests=0,publicationRequests=0;
+    let releaseNewer=()=>{};
+    try{
+     const address=await readSignal(manifest);assert.equal(address.pid,worker.pid);
+     const send=async(path,body)=>fetch('http://127.0.0.1:'+address.port+path,{method:'POST',headers:{authorization:'Bearer '+owner,'content-type':'application/json'},body:JSON.stringify(body)});
+     await page.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      initiationRequests++;const response=await send('/studio/native-execution-initiate',route.request().postDataJSON());
+      const body=await response.json();assert.equal(body.ok,true);
+      await route.fulfill({status:response.status,json:body});
+     });
+     await page.route('**/native-authority/studio/strict-conversation-settle',async route=>{
+      publicationRequests++;input=route.request().postDataJSON();
+      let actual;
+      try{const response=await send('/studio/strict-conversation-settle',input);actual={status:response.status,body:await response.json()};notifyResponse(actual);}
+      catch(error){notifyResponse({error:String(error)});}
+      await heldRoute;
+      if(actual){try{await route.fulfill({status:actual.status,json:actual.body});notifyDelivered(true);}catch(error){notifyDelivered(false);}}
+      else{await route.abort().catch(()=>{});notifyDelivered(false);}
+     });
+     await page.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(text);
+     await page.getByRole('button',{name:'Send',exact:true}).click();
+     const signal=await readSignal(pause);
+     assert.equal(signal.pid,worker.pid);assert.equal(initiationRequests,1);assert.equal(publicationRequests,1);
+     assert.equal(signal.armed.operationId,input.operationId);assert.equal(signal.retryResponseHeld,true);
+     assert.equal(signal.wire.forwarded,false);assert.equal(signal.wire.serverOk,undefined);
+     assert.ok(signal.commands.length>=2);assert.ok(signal.commands.every(c=>c.txn===signal.wire.txn&&c.sessionId===signal.wire.sessionId));
+     assert.equal(signal.commands.length,2);assert.equal(signal.commands[0].forwarded,false);assert.equal(signal.commands[1].forwarded,true);assert.equal(signal.commands[1].serverOk,1);assert.ok(signal.commands[1].replyBytes>16);
+     assert.ok(signal.driverEvents.some(e=>e.kind==='failed'));assert.equal(signal.driverEvents.some(e=>e.kind==='succeeded'),false);
+     assert.equal(signal.driverEvents.filter(e=>e.kind==='started').length,signal.commands.length);
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_WIRE_EVIDENCE '+JSON.stringify({wire:signal.wire,commands:signal.commands,driverEvents:signal.driverEvents}));
+     published=await projects.findOne({_id:proof.projectId});
+     assert.equal(published.revision,before.revision+1);
+     assert.deepEqual(published.state.conversationMessages.slice(0,-2),before.state.conversationMessages);
+     assert.equal(published.state.conversationMessages.at(-2).id,input.creatorTurnId);
+     assert.equal(published.state.conversationMessages.at(-2).text,text);
+     receipt=await receipts.findOne({projectId:proof.projectId,ownerId,operationId:input.operationId});
+     assert.ok(receipt);assert.equal(receipt.commitId,signal.armed.commitId);
+     assert.equal(receipt.creatorTurnId,input.creatorTurnId);assert.equal(receipt.revision,published.revision);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+1);
+     assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),bindingCount+1);
+     const binding=await bindingRows.findOne({ownerId,projectId:proof.projectId,creatorTurnId:input.creatorTurnId});
+     assert.equal(binding.fence,input.fence);assert.equal(binding.creatorText,text);
+     executionRow=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:input.creatorTurnId,phase:'settled'});
+     assert.ok(executionRow);canonicalResult=await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId});
+     assert.equal(canonicalResult.authorized,true);assert.equal(canonicalResult.committed,true);assert.equal(canonicalResult.resultPayload.text,published.state.conversationMessages.at(-1).text);
+     const reconciler=createMovieMentorInferenceSettlementReconciliationAuthority({store:createMovieMentorInferenceSettlementMongoStore()});
+     const reconciled=await reconciler.reconcile({executionId:executionRow.executionId});
+     assert.equal(reconciled.authorized,true);assert.equal(reconciled.settled,true);assert.equal(reconciled.outcome,'consumed');assert.equal(reconciled.resultDigest,canonicalResult.resultDigest);
+     paidBalance=await entitlement.findOne({principalId:ownerId});assert.equal(paidBalance.consumedUnits,balance.consumedUnits+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+1);
+     ledgerBeforeRecovery=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+     assert.equal(ledgerBeforeRecovery.length,originalLedger.length+1);assert.deepEqual(ledgerBeforeRecovery.slice(0,-1),originalLedger);
+     for(const prior of originalReceipts)assert.deepEqual(await receipts.findOne({_id:prior._id}),prior);
+     const state=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+     assert.equal(state.activeWriterFence,input.fence);
+     assert.equal(await page.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).count(),0);
+     assert.equal(worker.exitCode,null);assert.equal(worker.signalCode,null);
+     // Recover via the independent authenticated authority while the original
+     // driver is still blocked awaiting the withheld database response.
+     const receiptRequest={projectId:proof.projectId,operationId:input.operationId};
+     assert.equal((await transport({path:'/studio/native-conversation-receipt',token:foreign,body:receiptRequest})).ok,false);
+     const recovery=await transport({path:'/studio/native-conversation-recover',token:owner,body:{projectId:proof.projectId,selectionVaultId:proof.vaultId}});
+     assert.equal(recovery.ok,true);assert.equal(recovery.recovered,true);assert.equal(recovery.receipt.serverCommitId,receipt.commitId);
+     assert.equal(worker.exitCode,null);assert.equal(worker.signalCode,null);
+     assert.equal((await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:input.fence})).status,'retired');
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_BEFORE_DEATH_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,workerAlive:true,receipt:recovery.receipt}));
+     // Keep the original worker blocked and its original browser mounted.
+     // A separately authenticated browser advances the same durable project first.
+     await peerSignIn();
+     await peer.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).waitFor({timeout:20000});
+     await peer.getByRole('button',{name:'Request native writing'}).click();
+     await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+     let newerInput,newerRequests=0;
+     let newerPublicationInput,newerPublications=0,notifyPublication;
+     const publicationArrived=new Promise(r=>notifyPublication=r);
+     const publicationHeld=new Promise(r=>releaseNewer=r);
+     await peer.route('**/native-authority/studio/strict-conversation-settle',async route=>{
+      newerPublications++;newerPublicationInput=route.request().postDataJSON();notifyPublication();
+      await publicationHeld;await route.continue();
+     });
+     await peer.route('**/native-authority/studio/native-execution-initiate',async route=>{
+      newerRequests++;newerInput=route.request().postDataJSON();await route.continue();
+     });
+     await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(newerText);
+     await peer.getByRole('button',{name:'Send',exact:true}).click();
+     await Promise.race([publicationArrived,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('newer settled publication request not observed')),15000);t.unref()})]);
+     assert.equal(newerPublications,1);assert.equal(newerPublicationInput.creatorTurnId,newerInput.creatorTurnId);assert.equal(newerPublicationInput.fence,newerInput.fence);
+     assert.equal(providerRequests.length,calls+5);
+     const dispatched=providerRequests.slice(calls);assert.equal(new Set(dispatched.map(x=>x.idempotencyKey)).size,5);assert.ok(dispatched.every(x=>typeof x.idempotencyKey==='string'&&x.idempotencyKey.length>0));
+     const schemas=dispatched.map(x=>x.schemaName);assert.equal(schemas[0],'movie_journey_intelligence');assert.equal(schemas[4],'movie_mentor_synthesis');assert.deepEqual(schemas.slice(1,4).sort(),['movie_mentor_character_contribution','movie_mentor_continuity_contribution','movie_mentor_story_contribution']);
+     assert.equal(newerRequests,1);assert.ok(newerInput.fence);assert.notEqual(newerInput.fence,input.fence);
+     const activeQuery={projectId:proof.projectId,ownerId,fence:newerInput.fence};
+     const activeAdmission=await gate.admissions.findOne(activeQuery);
+     const activeState=await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false});
+     assert.equal(activeAdmission.status,'admitted');assert.equal(activeState.activeWriterFence,newerInput.fence);
+     assert.equal(activeState.revision,published.revision);assert.equal(activeState.activeAdoptionGrant,activeAdmission.grantId);
+     assert.equal((await readSignal(pause)).retryResponseHeld,true);
+     const activeExecutionQuery={principalId:ownerId,projectId:proof.projectId,creatorTurnId:newerInput.creatorTurnId};
+     const activeExecution=await raceExecutions.findOne(activeExecutionQuery);
+     assert.ok(activeExecution?.executionId);assert.equal(activeExecution.phase,'settled');assert.equal(activeExecution.requestDigest,newerInput.requestDigest);
+     const activeBinding=await bindingRows.findOne({ownerId,projectId:proof.projectId,creatorTurnId:newerInput.creatorTurnId});
+     assert.ok(activeBinding);assert.equal(activeBinding.fence,newerInput.fence);assert.equal(activeBinding.requestDigest,newerInput.requestDigest);
+     assert.equal(activeState.nativeExecutionBoundWriterFence,newerInput.fence);
+     const activeBalance=await entitlement.findOne({principalId:ownerId});
+     assert.equal(activeBalance.consumedUnits,paidBalance.consumedUnits+1);
+     const settledCanonical=await composed.execution.authority.readCanonicalResult({executionId:activeExecution.executionId});
+     assert.equal(settledCanonical.authorized,true);assert.equal(settledCanonical.committed,true);assert.equal(settledCanonical.resultPayload.text,newerPublicationInput.mentorMessage.text);
+     const settledAccounting=await reconciler.reconcile({executionId:activeExecution.executionId});
+     assert.equal(settledAccounting.authorized,true);assert.equal(settledAccounting.settled,true);assert.equal(settledAccounting.outcome,'consumed');assert.equal(settledAccounting.resultDigest,settledCanonical.resultDigest);
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),published);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+2);
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_ADMISSION_EVIDENCE '+JSON.stringify({fence:newerInput.fence,revision:activeState.revision,workerAlive:worker.exitCode===null,originalAckStillHeld:true,newerRequests,newerPublications,publicationHeld:true,settledResultDigest:settledCanonical.resultDigest,schemas,providerIdempotencyKeys:dispatched.map(x=>x.idempotencyKey),executionId:activeExecution.executionId,phase:activeExecution.phase}));
+     writeFileSync(pause+'.release','release');
+     const late=await Promise.race([lateResponse,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('late HTTP acknowledgement not observed')),15000);t.unref()})]);
+     assert.equal(late.status,200);assert.equal(late.body.ok,true);assert.equal(late.body.serverCommitId,receipt.commitId);assert.equal(late.body.committedRevision,receipt.revision);
+     const ack=await readSignal(pause);assert.equal(ack.receipt.serverCommitId,receipt.commitId);
+     assert.ok(ack.driverEvents.some(e=>e.kind==='succeeded'&&e.requestId===signal.commands[1].requestId));
+     assert.equal(worker.exitCode,null);assert.equal(worker.signalCode,null);
+     const stale=await send('/studio/strict-conversation-settle',input);assert.equal((await stale.json()).ok,false);
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_RELEASE_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,late,driverEvents:ack.driverEvents,staleWriterDenied:true}));
+     // Deliver the genuine late HTTP response to the still-mounted original browser.
+     // It must converge without a reload and without a second publication.
+     releaseRoute();
+     assert.equal(await Promise.race([delivered,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('late browser acknowledgement not delivered')),15000);t.unref()})]),true);
+     await page.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).waitFor({timeout:20000});
+     for(const msg of published.state.conversationMessages.filter(m=>m.role==='creator'))assert.equal(await page.getByLabel('Committed conversation transcript').getByText(msg.text,{exact:true}).count(),1);
+     assert.equal(await page.getByLabel('Committed conversation transcript').getByText(newerText,{exact:true}).count(),0);
+     assert.equal(initiationRequests,1);assert.equal(publicationRequests,1);assert.equal(newerRequests,1);
+     assert.equal(worker.exitCode,null);assert.equal(worker.signalCode,null);
+     assert.deepEqual(await gate.admissions.findOne(activeQuery),activeAdmission);
+     assert.deepEqual(await gate.states.findOne({projectId:proof.projectId,ownerId,revoked:false}),activeState);
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),published);
+     assert.deepEqual(await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray(),ledgerBeforeRecovery);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),activeBalance);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+1);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+2);
+     assert.deepEqual(await raceExecutions.findOne(activeExecutionQuery),activeExecution);
+     assert.deepEqual(await bindingRows.findOne({_id:activeBinding._id}),activeBinding);
+     assert.equal(newerPublications,1);assert.equal(providerRequests.length,calls+5);assert.deepEqual(providerRequests.slice(calls),dispatched);
+     assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:activeExecution.executionId}),settledCanonical);
+     assert.deepEqual(await reconciler.reconcile({executionId:activeExecution.executionId}),settledAccounting);
+     assert.equal((await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:input.fence})).status,'retired');
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_MOUNTED_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,workerAlive:true,delivered:true,initiationRequests,publicationRequests,newerFence:newerInput.fence,newerAdmissionPreserved:true,executionId:activeExecution.executionId,settledExecutionPreserved:true,newerPublicationStillHeld:true,allFiveDispatchesPreserved:true,revision:receipt.revision}));
+     releaseNewer();
+     await peer.getByLabel('Committed conversation transcript').getByText(newerText,{exact:true}).waitFor({timeout:20000});
+     newer=await projects.findOne({_id:proof.projectId});
+     assert.equal(newer.revision,published.revision+1);
+     assert.deepEqual(newer.state.conversationMessages.slice(0,-2),published.state.conversationMessages);
+     assert.equal(newer.state.conversationMessages.at(-2).text,newerText);
+     newerReceipt=await receipts.findOne({projectId:proof.projectId,ownerId,creatorTurnId:newer.state.conversationMessages.at(-2).id});
+     assert.ok(newerReceipt);assert.equal(newerReceipt.fence,newerInput.fence);assert.notEqual(newerReceipt.fence,input.fence);assert.equal(newerReceipt.revision,newer.revision);
+     newerExecution=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:newerReceipt.creatorTurnId,phase:'settled'});
+     assert.ok(newerExecution);assert.equal(newerExecution.executionId,activeExecution.executionId);assert.equal(newerExecution.creatorTurnId,newerInput.creatorTurnId);
+     newerCanonical=await composed.execution.authority.readCanonicalResult({executionId:newerExecution.executionId});
+     assert.deepEqual(newerCanonical,settledCanonical);assert.equal(newerCanonical.authorized,true);assert.equal(newerCanonical.committed,true);assert.equal(newerCanonical.resultPayload.text,newer.state.conversationMessages.at(-1).text);
+     newerLedger=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+     assert.equal(newerLedger.length,ledgerBeforeRecovery.length+1);assert.deepEqual(newerLedger.slice(0,-1),ledgerBeforeRecovery);
+     newerBalance=await entitlement.findOne({principalId:ownerId});
+     assert.equal(newerBalance.consumedUnits,paidBalance.consumedUnits+1);
+     assert.equal(providerRequests.length,calls+5);
+     assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+2);
+     assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+2);
+     assert.equal(newerRequests,1);assert.equal(newerPublications,1);
+     await peer.unrouteAll({behavior:'wait'});
+     assert.equal((await gate.admissions.findOne(activeQuery)).status,'retired');
+     worker.kill('SIGKILL');assert.equal((await exited).signal,'SIGKILL');
+     assert.deepEqual(await projects.findOne({_id:proof.projectId}),newer);
+     assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+     assert.deepEqual(await receipts.findOne({_id:newerReceipt._id}),newerReceipt);
+     assert.deepEqual(await raceExecutions.findOne({executionId:executionRow.executionId}),executionRow);
+     assert.deepEqual(await raceExecutions.findOne({executionId:newerExecution.executionId}),newerExecution);
+     assert.deepEqual(await entitlement.findOne({principalId:ownerId}),newerBalance);
+     assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:newerExecution.executionId}),newerCanonical);
+     console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_SIGKILL_EVIDENCE '+JSON.stringify({workerPid:worker.pid,recoveryPid:process.pid,signal:'SIGKILL',turn:input.creatorTurnId,commitId:receipt.commitId,revision:receipt.revision,executionId:executionRow.executionId,resultDigest:canonicalResult.resultDigest,workerProviderEffects:5,charges:1,publicationReceipts:1,lateAcknowledgementObserved:true}));
+     console.log('GREEN PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_MOUNTED_CONVERGENCE');
+     const blank=page.goto('about:blank');releaseRoute();await blank;await page.unrouteAll({behavior:'wait'});
+    }finally{releaseNewer();if(worker.exitCode===null&&worker.signalCode===null)worker.kill('SIGKILL');await exited;releaseRoute();for(const f of [manifest,pause,pause+'.release'])try{unlinkSync(f)}catch{}}
+    const receiptRequest={projectId:proof.projectId,operationId:input.operationId};
+    assert.equal((await transport({path:'/studio/native-conversation-receipt',token:foreign,body:receiptRequest})).ok,false);
+    const beforeRecoveryReceipt=await transport({path:'/studio/native-conversation-receipt',token:owner,body:receiptRequest});
+    assert.equal(beforeRecoveryReceipt.ok,true);assert.equal(beforeRecoveryReceipt.serverCommitId,receipt.commitId);assert.equal(beforeRecoveryReceipt.creatorTurnId,input.creatorTurnId);
+    const selected=await selection.read({token:owner,projectId:proof.vaultId});
+    assert.equal((await transport({path:'/studio/native-conversation-cancel',token:owner,body:{projectId:proof.projectId,selectionVaultId:proof.vaultId,expectedRevision:published.revision,expectedSelectionRevision:selected.revision,confirmCancellation:true}})).ok,false);
+    const recoveryRequests=[],recoveryResults=[];let releaseRecovery;
+    const recoveryBarrier=new Promise(r=>releaseRecovery=r);
+    for(const [label,p] of [['A',page],['B',peer]])await p.route('**/native-authority/studio/native-conversation-recover',async route=>{
+     recoveryRequests.push(label);releaseRecovery();
+     await recoveryBarrier;
+     const response=await route.fetch(),body=await response.json();recoveryResults.push({label,...body});await route.fulfill({response});
+    });
+    await Promise.all([signIn(),peerSignIn()]);
+    try{await Promise.all([page,peer].map(p=>p.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).waitFor({timeout:20000})));}
+    catch(error){console.error('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_RECOVERY_TRACE '+JSON.stringify({recoveryRequests,recoveryResults,trace:recoveryTrace,bodies:await Promise.all([page,peer].map(p=>p.locator('body').innerText()))}));throw error;}
+    assert.ok(recoveryRequests.every(r=>r==='A'||r==='B'));
+    assert.ok(recoveryResults.every(r=>r.ok===true));
+    assert.equal((await transport({path:'/studio/native-conversation-receipt',token:owner,body:receiptRequest})).serverCommitId,receipt.commitId);
+    for(const p of [page,peer]){await p.unrouteAll({behavior:'wait'});assert.equal(await p.getByLabel('Committed conversation transcript').getByText(text,{exact:true}).count(),1);}
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),newer);
+    assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+    assert.deepEqual(await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray(),newerLedger);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+2);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+2);
+    assert.equal(await bindingRows.countDocuments({ownerId,projectId:proof.projectId}),bindingCount+2);
+    assert.equal(providerRequests.length,calls+5);
+    assert.deepEqual(await entitlement.findOne({principalId:ownerId}),newerBalance);
+    assert.deepEqual(await receipts.findOne({_id:newerReceipt._id}),newerReceipt);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:newerExecution.executionId}),newerCanonical);
+    for(const p of [page,peer])for(const msg of newer.state.conversationMessages.filter(m=>m.role==='creator'))assert.equal(await p.getByLabel('Committed conversation transcript').getByText(msg.text,{exact:true}).count(),1);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId}),canonicalResult);
+    const retired=await gate.admissions.findOne({projectId:proof.projectId,ownerId,fence:input.fence});assert.equal(retired.status,'retired');
+    console.log('PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_RECOVERY_EVIDENCE '+JSON.stringify({requests:recoveryRequests,results:recoveryResults,additionalProviderEffects:0,additionalCharges:0,additionalPublications:0,commitId:receipt.commitId}));
+    console.log('GREEN PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_POST_RETIREMENT_BROWSER_CONVERGENCE');
+    await peer.getByRole('button',{name:'Request native writing'}).click();await peer.getByText('Server writer admitted',{exact:true}).waitFor({timeout:15000});
+    const continuation='After active newer provider and delayed original acknowledgement '+randomUUID();
+    await peer.getByPlaceholder("Tell Movie Mentor what's on your mind...").fill(continuation);
+    await peer.getByRole('button',{name:'Send',exact:true}).click();await peer.getByLabel('Committed conversation transcript').getByText(continuation,{exact:true}).waitFor({timeout:20000});
+    const final=await projects.findOne({_id:proof.projectId});
+    assert.equal(final.revision,newer.revision+1);assert.deepEqual(final.state.conversationMessages.slice(0,-2),newer.state.conversationMessages);
+    const row=await raceExecutions.findOne({principalId:ownerId,projectId:proof.projectId,creatorTurnId:final.state.conversationMessages.at(-2).id,phase:'settled'});
+    assert.ok(row);const canonical=await composed.execution.authority.readCanonicalResult({executionId:row.executionId});
+    assert.equal(canonical.authorized,true);assert.equal(canonical.resultPayload.text,final.state.conversationMessages.at(-1).text);
+    await Promise.all([signIn(),peerSignIn()]);
+    for(const p of [page,peer])for(const msg of final.state.conversationMessages.filter(m=>m.role==='creator'))await p.getByLabel('Committed conversation transcript').getByText(msg.text,{exact:true}).waitFor({timeout:15000});
+    assert.deepEqual(await projects.findOne({_id:proof.projectId}),final);
+    assert.deepEqual(await receipts.findOne({_id:receipt._id}),receipt);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:executionRow.executionId}),canonicalResult);
+    assert.equal((await transport({path:'/studio/native-conversation-receipt',token:owner,body:receiptRequest})).serverCommitId,receipt.commitId);
+    assert.equal(await receipts.countDocuments({projectId:proof.projectId}),receiptCount+3);
+    assert.equal(await raceExecutions.countDocuments({principalId:ownerId,projectId:proof.projectId}),executionCount+3);
+    assert.equal(providerRequests.length,calls+10);assert.equal((await entitlement.findOne({principalId:ownerId})).consumedUnits,balance.consumedUnits+3);
+    assert.deepEqual(await receipts.findOne({_id:newerReceipt._id}),newerReceipt);
+    assert.deepEqual(await composed.execution.authority.readCanonicalResult({executionId:newerExecution.executionId}),newerCanonical);
+    const finalLedger=await provenance.ledger.find({projectId:proof.projectId}).sort({revision:1}).toArray();
+    assert.equal(finalLedger.length,newerLedger.length+1);assert.deepEqual(finalLedger.slice(0,-1),newerLedger);
+    for(const prior of proof.prior){const actual=await projects.findOne({_id:prior.id});assert.equal(actual.revision,prior.revision);assert.deepEqual(actual.state,prior.state);}
+    console.log('GREEN PHYSICAL_DATABASE_COMMIT_LATE_DURING_NEWER_SETTLED_UNPUBLISHED_BROWSER_CONTINUATION_AND_RELOAD');
+    }
 
 
 
